@@ -49,7 +49,7 @@ Información sobre cada orden realizada por los usuarios.
 
 # Tabla: `order_products_prior`
 
-Contiene los productos comprados en órdenes históricas.
+Contiene los productos comprados en órdenes históricas. El entrenamiento se realiza sobre esta tabla.
 
 | Campo | Tipo | Descripción | Unidad | Nulos | Ejemplo |
 |------|------|-------------|-------|-------|--------|
@@ -65,9 +65,11 @@ Contiene los productos comprados en órdenes históricas.
 
 ---
 
-# Tabla: `order_products__train`
+# Tabla: `order_products_train`
 
-Contiene los productos de las órdenes utilizadas para entrenar el modelo de recomendación.
+Contiene la última orden real de cada usuario y se utiliza
+como target de evaluación del modelo. La variable reordered en esta tabla es el ground
+truth que el modelo intenta predecir.
 
 | Campo | Tipo | Descripción | Unidad | 
 |------|------|-------------|-------|
@@ -119,12 +121,24 @@ Categorías generales de productos.
 
 ---
 
+# Tabla: `users`
+
+Categorías generales de productos.
+
+| Campo | Tipo | Descripción | Unidad | 
+|------|------|-------------|-------|
+| user_id | integer | Identificador del usuario | ID |
+| user_name | string | Nombre del usuario | texto |
+| user_address | string | Direccion del usuario | texto |
+| user_age | Int | Edad del usuario | numérico |
+
 # Relaciones entre Tablas
 
 orders.order_id → order_products.order_id
 products.product_id → order_products.product_id
 products.aisle_id → aisles.aisle_id
 products.department_id → departments.department_id
+users.user_id → orders.user_id
 
 # Reglas de Calidad de Datos
 
@@ -132,4 +146,5 @@ products.department_id → departments.department_id
 2. `product_id` debe existir en la tabla **products**
 3. `aisle_id` debe existir en la tabla **aisles**
 4. `department_id` debe existir en la tabla **departments**
-5. `days_since_prior_order` puede ser **NULL únicamente en la primera orden del usuario**
+5. `user_id` debe existir en la tabla **users**
+6. `days_since_prior_order` puede ser **NULL únicamente en la primera orden del usuario**
