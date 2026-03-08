@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS fact_order_products (
     days_since_prior_order  FLOAT           NULL,      -- NULL en primera orden
     add_to_cart_order       SMALLINT        NOT NULL,
     reordered               SMALLINT        NOT NULL,  -- 0 = no, 1 = sí
+    order_number            INTEGER         NOT NULL,
     get_eval                VARCHAR(10)     NOT NULL
                             CHECK (get_eval IN ('train', 'prior')),
 

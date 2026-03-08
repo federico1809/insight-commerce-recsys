@@ -27,19 +27,19 @@ load_dotenv(ROOT_DIR / '.env')
 load_dotenv(ROOT_DIR / '.env.example')
 
 # Las buscamos en nuestro .env
-host = os.getenv('HOST')
-database = os.getenv('DATABASE') 
-user = os.getenv('USER')
-password = os.getenv('PASSWORD')
-port = os.getenv('PORT')
+supa_host = os.getenv('supa_host')
+supa_database = os.getenv('supa_database') 
+supa_user = os.getenv('supa_user')
+supa_password = os.getenv('supa_password')
+supa_port = os.getenv('supa_port')
 
 # Configruacion de Postgres para hacer la conexion
 DB_CONFIG = {
-    'host': host,
-    'database': database,
-    'user': user,
-    'password': password,
-    'port': port
+    'host': supa_host,
+    'database': supa_database,
+    'user': supa_user,
+    'password': supa_password,
+    'port': supa_port
 }
 
 # Faker es una libreria que crea datos sinteticos, seran necesarios para algunos nombres
@@ -348,12 +348,14 @@ class DataIngestation:
             return
 
         files_mapping = [
-            ('departments.csv', 'departments', 'departments'),
-            ('order_products__prior.csv', 'orders_schema', 'order_products_prior'),
-            ('order_products__train.csv', 'orders_schema', 'order_products_train'),
-            ('orders.csv', 'orders_schema', 'orders'),
-            ('aisles.csv', 'resources', 'aisles'),
-            ('products.csv', 'resources', 'products')
+        # Primero las tablas de referencia (sin dependencias)
+        ('departments.csv', 'departments', 'departments'),
+        ('aisles.csv', 'resources', 'aisles'),
+        ('products.csv', 'resources', 'products'),
+        # Después las tablas que dependen de products y orders
+        ('orders.csv', 'orders_schema', 'orders'),
+        ('order_products__prior.csv', 'orders_schema', 'order_products_prior'),
+        ('order_products__train.csv', 'orders_schema', 'order_products_train'),
         ]
 
         for file_name, schema, table in files_mapping:
@@ -374,7 +376,7 @@ class DataIngestation:
 
 if __name__ == "__main__":
 
-    PATH_TO_CSVS = "./data" # Colocar la ruta de los CSV
+    PATH_TO_CSVS = "data/raw" # Colocar la ruta de los CSV
 
     etl = DataIngestation(DB_CONFIG)
     etl.run_etl(PATH_TO_CSVS)

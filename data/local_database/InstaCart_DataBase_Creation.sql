@@ -86,10 +86,11 @@ CREATE TABLE IF NOT EXISTS Orders_Schema.order_products_prior(
     reordered INT
 );
 
-ALTER TABLE Orders_Schema.order_products_train
+ALTER TABLE Orders_Schema.order_products_prior
 ADD CONSTRAINT fk_order_id_prior
 FOREIGN KEY (order_id) REFERENCES Orders_Schema.order(order_id);
 
-ALTER TABLE Orders_Schema.order_products_train
+ALTER TABLE Orders_Schema.order_products_prior
 ADD CONSTRAINT fk_product_id_prior
 FOREIGN KEY (product_id) REFERENCES Resources.products(product_id);
+
