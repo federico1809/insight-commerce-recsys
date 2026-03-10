@@ -273,6 +273,12 @@ class DimensionalETL:
         # eval_set='test' excluido por el WHERE final.
         # Usuarios aptos: los cargados en dim_user (JOIN actúa como filtro).
         # Productos aptos: los cargados en dim_product (JOIN actúa como filtro).
+        # Obtener los user_keys ya cargados en Neon
+        neon_cursor = self.neon_conn.cursor()
+        neon_cursor.execute('SELECT user_key FROM dim_user')
+        loaded_users = tuple(row[0] for row in neon_cursor.fetchall())
+        neon_cursor.close()
+
         query_ext_fact = f"""
             WITH All_Orders AS (
                 SELECT order_id, product_id, add_to_cart_order, reordered
@@ -281,20 +287,7 @@ class DimensionalETL:
                 SELECT order_id, product_id, add_to_cart_order, reordered
                 FROM Orders_Schema.order_products_train
             ),
-            Usuarios_Aptos AS (
-                -- Usuarios con >= {MIN_USER_ORDERS} órdenes prior
-                -- Y al menos 1 orden train (label válido para el modelo)
-                SELECT user_id
-                FROM Orders_Schema.orders
-                GROUP BY user_id
-                HAVING
-                    COUNT(order_id) FILTER (WHERE eval_set = 'prior') >= {MIN_USER_ORDERS}
-                    AND COUNT(order_id) FILTER (WHERE eval_set = 'train') >= 1
-                ORDER BY RANDOM()
-                LIMIT {N_USERS_APTOS}
-            ),
             Productos_Aptos AS (
-                -- Productos con >= {MIN_PRODUCT_ORDERS} compras globales en prior
                 SELECT product_id
                 FROM Orders_Schema.order_products_prior
                 GROUP BY product_id
@@ -312,12 +305,12 @@ class DimensionalETL:
                 o.order_number,
                 o.eval_set                          AS get_eval
             FROM Orders_Schema.orders o
-            JOIN All_Orders      op  ON o.order_id      = op.order_id
-            JOIN Usuarios_Aptos  ua  ON o.user_id        = ua.user_id
-            JOIN Productos_Aptos pa  ON op.product_id    = pa.product_id
-            WHERE o.eval_set IN ('prior', 'train');
+            JOIN All_Orders      op  ON o.order_id   = op.order_id
+            JOIN Productos_Aptos pa  ON op.product_id = pa.product_id
+            WHERE o.eval_set IN ('prior', 'train')
+            AND o.user_id IN {loaded_users};
         """
-
+        
         query_ins_fact = """
             INSERT INTO fact_order_products (
                 order_key, user_key, product_key, order_dow, order_hour_of_day,
