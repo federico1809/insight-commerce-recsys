@@ -1,9 +1,9 @@
-# 🚀 insight-commerce-recsys
-Sistema de recomendación de próxima compra - Proyecto Final Data Science
+# insight-commerce-recsys
+Sistema de recomendacion de proxima compra - Proyecto Final Data Science
 
 ---
 
-## 📦 Instalación
+## Instalacion
 
 ### 1. Clonar el repositorio
 ```bash
@@ -33,8 +33,7 @@ Copia el archivo de ejemplo y editalo con tus datos:
 ```bash
 cp .env.example .env
 ```
-
-Luego abre `.env` y completa los valores según tu entorno (ver sección [Variables de entorno](#-variables-de-entorno)).
+Luego abre `.env` y completa los valores segun tu entorno (ver seccion [Variables de entorno](#variables-de-entorno)).
 
 ### 5. Ejecutar el ETL
 ```bash
@@ -43,12 +42,11 @@ python src/data/etl_dimensional.py
 
 ---
 
-## 🔐 Variables de entorno
+## Variables de entorno
 
-El proyecto utiliza un archivo `.env` en la raíz del proyecto para gestionar la configuración sensible. **Este archivo nunca debe subirse al repositorio.**
+El proyecto utiliza un archivo `.env` en la raiz del proyecto para gestionar la configuracion sensible. **Este archivo nunca debe subirse al repositorio.**
 
 ### Ejemplo de `.env`
-
 ```env
 # Base de datos local (PostgreSQL)
 LOCAL_HOST=localhost
@@ -65,102 +63,136 @@ NEON_PASSWORD=tu_password
 NEON_PORT=5432
 NEON_SSLMODE=require
 
-# Configuración del proyecto
+# Configuracion del proyecto
 DATA_PATH=data/raw
 RANDOM_SEED=42
 N_USERS=100000
 ```
 
-### Descripción de variables
+### Descripcion de variables
 
-| Variable | Descripción | Valor por defecto |
+| Variable | Descripcion | Valor por defecto |
 |---|---|---|
-| `LOCAL_HOST` | Dirección del servidor PostgreSQL local | `localhost` |
+| `LOCAL_HOST` | Direccion del servidor PostgreSQL local | `localhost` |
 | `LOCAL_DATABASE` | Nombre de la base de datos local | `InstaCart_DB` |
 | `LOCAL_USER` | Usuario PostgreSQL local | `postgres` |
-| `LOCAL_PASSWORD` | Contraseña PostgreSQL local | — |
+| `LOCAL_PASSWORD` | Contrasena PostgreSQL local | - |
 | `LOCAL_PORT` | Puerto PostgreSQL local | `5432` |
-| `NEON_HOST` | Host de Neon PostgreSQL | — |
+| `NEON_HOST` | Host de Neon PostgreSQL | - |
 | `NEON_DATABASE` | Nombre de la base de datos en Neon | `neondb` |
-| `NEON_USER` | Usuario Neon | — |
-| `NEON_PASSWORD` | Contraseña Neon | — |
+| `NEON_USER` | Usuario Neon | - |
+| `NEON_PASSWORD` | Contrasena Neon | - |
 | `NEON_PORT` | Puerto Neon | `5432` |
 | `NEON_SSLMODE` | Modo SSL Neon | `require` |
 | `DATA_PATH` | Ruta a los CSVs originales | `data/raw` |
 | `RANDOM_SEED` | Semilla aleatoria global | `42` |
 | `N_USERS` | Usuarios a considerar en EDA local | `100000` |
 
-> ⚠️ **Nunca compartas ni subas tu archivo `.env` a control de versiones.** Asegúrate de que `.env` esté incluido en tu `.gitignore`.
+> **Nunca compartas ni subas tu archivo `.env` a control de versiones.** Asegurate de que `.env` este incluido en tu `.gitignore`.
 
 ---
 
-## 📁 Estructura del proyecto
+## Estructura del proyecto
+
+Solo se muestran los archivos versionados. Los directorios `data/raw/`, `data/processed/`, `models/` y `venv/` estan excluidos por `.gitignore`.
 
 ```
 insight-commerce-recsys/
-│
-├── data/
-│   ├── raw/                        # CSVs originales — NO commiteados (.gitignore)
-│   ├── processed/                  # Datos procesados para modelado — NO commiteados
-│   ├── samples/                    # Muestras pequeñas para desarrollo y tests
-│   └── local_database/
-│       ├── InstaCart_DataBase_Creation_Relacional.sql
-│       └── InstaCart_DataBase_Creation_Dimensional.sql
-│
-├── notebooks/
-│   ├── 01_eda.ipynb
-│   ├── 02_calidad_datos.ipynb
-│   ├── 03_feature_engineering.ipynb
-│   └── 04_lgbm_model.ipynb
-│
-├── src/
-│   ├── data/
-│   │   ├── data_ingestion.py
-│   │   ├── etl_dimensional.py
-│   │   ├── data_loader_supabase.py
-│   │   └── validate.py
-│   ├── features/
-│   │   ├── feature_engineering.py
-│   │   └── validation.py
-│   ├── models/
-│   │   ├── train.py
-│   │   └── recommendation.py
-│   ├── evaluation/
-│   │   └── metrics.py
-│   └── api/
-│       └── main.py
-│
-├── app/
-│   └── streamlit_app.py
-│
-├── reports/
-│   ├── figures/
-│   ├── logs/
-│   └── informe_tecnico.md
-│
-├── models/                         # Modelos serializados — NO commiteados
-│
-├── tests/
-│   └── test_api.py
-│
-├── docs/
-│   ├── decisions.md
-│   ├── feature_schema.md
-│   ├── metricas_recomendacion.md
-│   ├── arquitectura_deploy.md
-│   ├── erd_dimensional.png
-│   └── manual_usuario.md
-│
-├── .env.example
-├── .gitignore
-├── requirements.txt
-├── CHANGELOG.md
-└── README.md
+|
++-- .github/
+|   +-- PULL_REQUEST_TEMPLATE.md
+|
++-- .vscode/
+|   +-- settings.json
+|
++-- app/                            # Streamlit (pendiente)
+|
++-- data/
+|   +-- samples/                    # Muestras pequenas para desarrollo
+|   +-- local_database/
+|       +-- InstaCart_DataBase_Creation.sql
+|       +-- InstaCart_DataBase_Creation_Dimensional.sql
+|
++-- docs/
+|   +-- figures/
+|   |   +-- erd_dimensional.png
+|   +-- DATABASE_SETUP.md
+|   +-- FEATURES.md
+|   +-- SUPABASE_SETUP.md
+|   +-- data_dictionary.md
+|   +-- estrategia_validacion.md    # Split por filas vs GroupShuffleSplit (Sprint 2)
+|
++-- notebooks/
+|   +-- 01_eda.ipynb                # EDA sobre CSVs completos (base local)
+|   +-- 01_eda_neon.ipynb           # EDA y validaciones V-1 a V-8 sobre NeonDB
+|   +-- 02_calidad_datos.ipynb
+|   +-- 04_modelado.ipynb           # Modelado: LightGBM + CatBoost + Optuna (Sprint 2)
+|
++-- reports/
+|   +-- figures/                    # Graficos generados por notebooks y EDA
+|   +-- reporte_calidad_datos.csv
+|   +-- reporte_calidad_datos.html
+|
++-- src/
+|   +-- __init__.py
+|   +-- api/
+|   |   +-- __init__.py
+|   +-- data/
+|   |   +-- __init__.py
+|   |   +-- data_ingestation.py
+|   |   +-- data_loader.py          # load_data_from_neon()
+|   |   +-- etl_dimensional.py
+|   +-- evaluation/
+|   |   +-- __init__.py
+|   +-- features/
+|   |   +-- __init__.py
+|   |   +-- feature_engineering.py  # build_feature_matrix() -- Feature Schema v4
+|   |   +-- pipeline.py             # Orquestador: feat_eng + preprocessing
+|   |   +-- preprocessing.py        # preprocess() -- pipeline sklearn
+|   +-- models/                     # Agregado en Sprint 2
+|       +-- __init__.py
+|       +-- train.py                # Entrenamiento LightGBM con Optuna
+|
++-- tests/
+|
++-- .gitignore
++-- LICENSE
++-- README.md
++-- requirements.txt
 ```
 
 ---
 
-## 🗄️ Base de datos
+## Pipeline de ejecucion
+
+El proyecto se ejecuta en dos pasos independientes desde la raiz del repositorio.
+
+### Paso 1 — Feature pipeline
+Carga datos desde NeonDB, calcula features y genera el feature matrix:
+```bash
+python -m src.features.pipeline
+```
+Output: `data/processed/feature_matrix.parquet`
+
+Solo es necesario volver a correr este paso si cambian las features o los datos en NeonDB.
+
+### Paso 2 — Entrenamiento
+Lee el parquet, entrena LightGBM con Optuna y serializa el modelo:
+```bash
+# Con Optuna (50 trials -- recomendado)
+python -m src.models.train
+
+# Sin Optuna -- hiperparametros por defecto, mas rapido
+python -m src.models.train --no-optuna
+
+# Con mas trials
+python -m src.models.train --trials 100
+```
+Output: `models/model.pkl`, `models/cluster_models.pkl`, `models/model_log.json`
+
+---
+
+## Base de datos
 
 El proyecto usa dos bases de datos:
 
@@ -170,45 +202,74 @@ El proyecto usa dos bases de datos:
 
 ### Esquema dimensional en Neon
 
-| Tabla | Filas | Descripción |
+| Tabla | Filas | Descripcion |
 |---|---|---|
-| `dim_user` | ~10.000 | Usuarios aptos (≥5 órdenes prior + ≥1 orden train) |
-| `dim_product` | ~26.000 | Productos aptos (≥50 compras globales) |
-| `fact_order_products` | ~2.000.000 | Hechos de compra (prior + train) |
+| `dim_user` | 10.000 | Usuarios aptos (>=5 ordenes prior + >=1 orden train) |
+| `dim_product` | 26.686 | Productos aptos (>=50 compras globales) |
+| `fact_order_products` | 1.999.645 | Hechos de compra (prior + train) |
 
 ### Filtros aplicados en el ETL
 
-- `eval_set != 'test'` — excluir órdenes de test
-- Usuarios con ≥ 5 órdenes `prior` **Y** ≥ 1 orden `train`
-- Productos con ≥ 50 compras globales en `prior`
-- `LIMIT 10.000` usuarios aptos
+- `eval_set != 'test'` -- excluir ordenes de test
+- Usuarios con >= 5 ordenes `prior` y >= 1 orden `train`
+- Productos con >= 50 compras globales en `prior`
+- `LIMIT 10.000` usuarios aptos · `RANDOM_SEED = 42`
 
 ---
 
-## 🔀 Git Workflow — Ramas y Pull Requests
+## Modelo
 
-### 📐 Estructura de Ramas
+### Feature Schema v4 -- 26 columnas + label
+
+| Grupo | Features | Count |
+|---|---|---|
+| IDs | `user_key`, `product_key` | 2 |
+| Usuario | `user_total_orders`, `user_avg_basket_size`, `user_days_since_last_order`, `user_reorder_ratio`, `user_distinct_products`, `user_segment_code` | 6 |
+| Producto | `product_total_purchases`, `product_reorder_rate`, `product_avg_add_to_cart`, `product_unique_users`, `p_department_reorder_rate`, `p_aisle_reorder_rate` | 6 |
+| Interaccion u×p | `up_times_purchased`, `up_reorder_rate`, `up_orders_since_last_purchase`, `up_first_order_number`, `up_last_order_number`, `up_avg_add_to_cart_order`, `up_days_since_last`, `up_avg_days_between_orders`, `up_delta_days`, `u_favorite_department`, `u_favorite_aisle` | 11 |
+| Label | `label` | 1 |
+
+### Resultados del modelo (Sprint 2)
+
+Split de evaluacion: **70/15/15 por usuarios** -- cada usuario aparece en un unico conjunto.
+
+| Modelo | Precision | Recall | F1 | AUC-ROC |
+|---|---|---|---|---|
+| Baseline popularidad | 0.2370 | 0.1159 | 0.1557 | - |
+| LightGBM baseline | 0.0000 | 0.0000 | 0.0000 | 0.8257 |
+| LightGBM optimizado | **0.4347** | 0.4106 | **0.4223** | 0.8197 |
+| CatBoost | 0.2511 | **0.7386** | 0.3748 | **0.8253** |
+
+Modelo en produccion: LightGBM optimizado con Optuna (50 trials · `scale_pos_weight=8.88`).
+
+Top 5 features mas importantes: `up_reorder_rate`, `up_days_since_last`, `product_reorder_rate`, `user_reorder_ratio`, `up_delta_days`.
+
+---
+
+## Git Workflow -- Ramas y Pull Requests
+
+### Estructura de ramas
 
 ```
 main
-└── develop
-        ├── feature/eda-exploratorio
-        ├── feature/feature-engineering
-        ├── feature/etl-neon-dimensional
-        ├── feature/modelo-lightgbm
-        ├── feature/api-fastapi
-        ├── feature/demo-streamlit
-        ├── feature/dashboard-metricas
-        └── hotfix/descripcion-del-fix
++-- develop
+        +-- feature/eda-exploratorio
+        +-- feature/feature-engineering
+        +-- feature/etl-neon-dimensional
+        +-- feature/modelo-lightgbm
+        +-- feature/api-fastapi
+        +-- feature/demo-streamlit
+        +-- feature/dashboard-metricas
+        +-- hotfix/descripcion-del-fix
 ```
 
-| Rama | Propósito | Desplegada en |
+| Rama | Proposito | Desplegada en |
 |---|---|---|
-| `main` | Código en producción, siempre estable | 🟢 Producción |
-| `develop` | Integración continua, base de trabajo | 🔵 Staging / QA |
+| `main` | Codigo en produccion, siempre estable | Produccion |
+| `develop` | Integracion continua, base de trabajo | Staging / QA |
 | `feature/*` | Desarrollo de funcionalidades individuales | Local / Dev |
 
-### 🔄 Flujo de Trabajo
+### Flujo de trabajo
 
 #### 1. Crear una rama de feature
 Siempre parte desde `develop`:
@@ -218,44 +279,44 @@ git pull origin develop
 git checkout -b feature/nombre-descriptivo
 ```
 
-**Convención de commits:**
+Convencion de commits:
 ```
-tipo(scope): descripción breve en imperativo
+tipo(scope): descripcion breve en imperativo
 
 Ejemplos:
-feat(eda): agregar análisis de distribución de recompra por categoría
+feat(eda): agregar analisis de distribucion de recompra por categoria
 fix(etl): corregir filtro de usuarios en fact usando loaded_users desde Neon
-docs(readme): actualizar instrucciones de instalación
-refactor(model): separar pipeline de features en módulo independiente
+docs(readme): actualizar instrucciones de instalacion
+refactor(model): separar pipeline de features en modulo independiente
 test(api): agregar test de endpoint /recommend
-chore(deps): actualizar lightgbm a versión 4.1
+chore(deps): actualizar lightgbm a version 4.1
 
-Tipos válidos: feat, fix, docs, refactor, test, chore, style, perf
+Tipos validos: feat, fix, docs, refactor, test, chore, style, perf
 ```
 
 #### 2. Desarrollar y hacer commits
 ```bash
 git add .
-git commit -m "feat: descripción clara del cambio"
+git commit -m "feat: descripcion clara del cambio"
 git push origin feature/nombre-descriptivo
 ```
 
 #### 3. Abrir un Pull Request hacia `develop`
 - Ir al repositorio en GitHub
-- Crear un PR desde `feature/*` → `develop`
+- Crear un PR desde `feature/*` hacia `develop`
 - Completar la plantilla de PR
-- Asignar al menos **un revisor** del equipo
+- Asignar al menos un revisor del equipo
 
-#### 4. Revisión de código
-- El revisor analiza el código, deja comentarios y aprueba o solicita cambios
+#### 4. Revision de codigo
+- El revisor analiza el codigo, deja comentarios y aprueba o solicita cambios
 - El autor responde los comentarios y realiza las correcciones necesarias
-- **No se puede hacer merge sin al menos 1 aprobación**
+- No se puede hacer merge sin al menos 1 aprobacion
 
 #### 5. Merge a `develop`
 Una vez aprobado, desde la interfaz de GitHub (squash merge recomendado).
 
 #### 6. Release a `main`
-Cuando `develop` está estable y validado en QA:
+Cuando `develop` esta estable y validado en QA:
 ```bash
 git checkout main
 git pull origin main
@@ -264,43 +325,41 @@ git tag -a v1.x.x -m "Release v1.x.x"
 git push origin main --tags
 ```
 
-### ✅ Reglas de Pull Requests
+### Reglas de Pull Requests
 
-**Obligatorio para todo PR:**
-- Al menos 1 aprobación de un miembro del equipo antes del merge
+Obligatorio para todo PR:
+- Al menos 1 aprobacion de un miembro del equipo antes del merge
 - Sin conflictos con la rama base
-- Descripción clara de los cambios realizados
+- Descripcion clara de los cambios realizados
 
-**Protecciones de ramas:**
+Protecciones de ramas:
 
-| Rama | Merge directo | PR requerido | Aprobaciones mínimas |
+| Rama | Merge directo | PR requerido | Aprobaciones minimas |
 |---|:---:|:---:|:---:|
-| `main` | ❌ | ✅ | 1 |
-| `develop` | ❌ | ✅ | 1 |
-| `feature/*` | ✅ | — | — |
+| `main` | No | Si | 1 |
+| `develop` | No | Si | 1 |
+| `feature/*` | Si | - | - |
 
-### 📝 Plantilla de Pull Request
+### Plantilla de Pull Request
 
 ```markdown
-## 📋 Descripción
+## Descripcion
 Breve resumen de los cambios y el contexto del problema que resuelven.
 
-## 🔗 Issue relacionado
+## Issue relacionado
 Card #NRO
 
-## 🧪 Tipo de cambio
-- [ ] ✨ Nueva funcionalidad
-- [ ] 🐛 Corrección de bug
-- [ ] ♻️ Refactor
-- [ ] 📝 Documentación
-- [ ] 🔧 Configuración / chore
+## Tipo de cambio
+- [ ] Nueva funcionalidad
+- [ ] Correccion de bug
+- [ ] Refactor
+- [ ] Documentacion
+- [ ] Configuracion / chore
 
-## ✅ Checklist
-- [ ] El código sigue los estándares del proyecto
-- [ ] He añadido/actualizado tests necesarios
-- [ ] He actualizado la documentación si aplica
+## Checklist
+- [ ] El codigo sigue los estandares del proyecto
+- [ ] He anadido/actualizado tests necesarios
+- [ ] He actualizado la documentacion si aplica
 - [ ] He probado los cambios localmente
 - [ ] No hay conflictos con la rama base
 ```
-
----

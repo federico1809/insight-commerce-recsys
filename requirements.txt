@@ -22,3 +22,4 @@ faker
 tqdm
 ipykernel
 jupyter
+catboost
