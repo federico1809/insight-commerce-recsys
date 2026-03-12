@@ -903,9 +903,9 @@ def build_feature_matrix(
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    from src.data.data_loader_local import load_data_from_local
+    from src.data.data_loader import load_data_from_neon
 
-    data   = load_data_from_local()
+    data   = load_data_from_neon()
     matrix = build_feature_matrix(data)
 
     print("\nFeature matrix generada:")
