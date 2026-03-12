@@ -23,13 +23,28 @@ Uso:
 """
 
 import logging
+import sys
 import time
+from pathlib import Path
 
 from src.data.data_loader import load_data_from_neon as load_data
 from src.features.feature_engineering import build_feature_matrix
 from src.features.preprocessing import preprocess  
 
+# Parchear todos los StreamHandlers del root logger para usar UTF-8.
+# Necesario en Windows (cp1252 no soporta → y otros caracteres Unicode).
+for _h in logging.root.handlers:
+    if isinstance(_h, logging.StreamHandler) and hasattr(_h.stream, 'reconfigure'):
+        _h.stream.reconfigure(encoding='utf-8')
+
 logger = logging.getLogger('pipeline')
+
+# Guardar logs del pipeline en su propio archivo
+_LOG_DIR = Path(__file__).resolve().parents[2] / 'src' / 'features' / 'reports' / 'logs'
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_fh = logging.FileHandler(_LOG_DIR / 'pipeline.log', encoding='utf-8')
+_fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(_fh)
 
 
 def run():
