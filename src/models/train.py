@@ -19,6 +19,8 @@ Flujo:
         |
         4. LightGBM optimizado          (fit en train, eval en val)
         |
+        5. Guardado MLFlow              (Guardado en MLFlow los resultados)
+        |
         5. Evaluacion en test
         |
         6. Serializacion
@@ -342,6 +344,7 @@ def train(
 ) -> Dict[str, Any]:
     """
     Flujo completo de entrenamiento.
+    Guardado de Resultados en MLFlow
 
     Parameters
     ----------
@@ -365,8 +368,8 @@ def train(
     models_dir.mkdir(parents=True, exist_ok=True)
     
     # ── NUEVO: Configuración inicial de MLflow ────────────────────────────────
-    mlflow.set_tracking_uri("http://127.0.0.1:5000")
-    mlflow.set_experiment("Next_Basket_Recommendation")
+    mlflow.set_tracking_uri("http://127.0.0.1:5000") # Direccion de MLFlow
+    mlflow.set_experiment("Next_Basket_Recommendation") # Nombre de la Bitacora de MLFlow
 
     logger.info("=" * 60)
     logger.info("Iniciando train.py")
@@ -376,6 +379,8 @@ def train(
     logger.info(f"  random_state     : {random_state}")
     logger.info("=" * 60)
 
+    # Con esto podemos crear un RUN en MLFlow para guardar las mejores metricas que se guardaron en el modelo
+    # MLFlow es como una bitacora para evaluar cual es el mejor modelo en uno u otro caso
     with mlflow.start_run(run_name="lgbm_kmeans_pipeline"):
 
         # Registrar parámetros globales del pipeline
@@ -427,7 +432,7 @@ def train(
                 "verbose"         : -1,
             }
         
-        mlflow.log_params(best_params)
+        mlflow.log_params(best_params) # Guardamos los logs con las mejores metricas
 
         # ── 6. Entrenar modelo final ───────────────────────────────────────────────
         logger.info("Entrenando LightGBM con mejores parametros...")
@@ -507,8 +512,8 @@ def train(
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump(log, f, indent=2, ensure_ascii=False)
 
-        mlflow.lightgbm.log_model(model, artifact_path="lightgbm_model")
-        mlflow.log_artifact(local_path=str(cluster_path), artifact_path="cluster_models")
+        mlflow.lightgbm.log_model(model, artifact_path="lightgbm_model") # Nombre del modelo lightGBM que se uso y en path donde se guarda en MLFlow
+        mlflow.log_artifact(local_path=str(cluster_path), artifact_path="cluster_models") 
         mlflow.log_artifact(local_path=str(log_path), artifact_path="logs")
 
     elapsed = time.time() - start

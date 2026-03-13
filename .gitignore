@@ -217,3 +217,5 @@ mlruns/
 *.csv
 
 /mlartifacts
+notebooks/catboost_info
+mlflow.db
