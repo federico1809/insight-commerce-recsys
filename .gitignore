@@ -211,6 +211,8 @@ data/raw/
 data/processed/
 /models/
 .env
+models
+
 # MLflow
 mlruns/
 #Ignora los csv
