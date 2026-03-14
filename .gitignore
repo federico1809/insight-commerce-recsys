@@ -219,3 +219,4 @@ mlruns/
 /mlartifacts
 notebooks/catboost_info
 mlflow.db
+*.csv

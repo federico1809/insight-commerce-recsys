@@ -148,7 +148,7 @@ class DimensionalETL:
             }
 
     # Gracias al uso de POO podemos unir el escript populate_dim_user.py en el mismo etl 
-    def populate_dim_user():
+    def populate_dim_user(self):
         """
         populate_dim_user.py
         Puebla las columnas user_name, user_address y user_birthdate de dim_user
@@ -164,9 +164,9 @@ class DimensionalETL:
         Faker.seed(RANDOM_SEED)
 
         try:
-            conn = psycopg2.connect(**NEON_DB_CONFIG)
+            conn = self.neon_conn
             cur  = conn.cursor()
-            logging.info("Conexión a Neon exitosa.")
+            logging.info("Usando conexión Neon existente para poblar datos sintéticos.")
 
             # ── Obtener user_keys que tienen NULL en user_name ─────────────────────
             cur.execute("""
@@ -215,7 +215,6 @@ class DimensionalETL:
                 logging.info(f"Actualizados: {total_updated:,} / {len(records):,}")
 
             logging.info(f"Completado. {total_updated:,} usuarios poblados con datos sintéticos.")
-            conn.close()
 
         except Exception as e:
             logging.error(f"Error: {e}")
@@ -357,7 +356,7 @@ class DimensionalETL:
         neon_cursor.close()
 
         query_ext_fact = f"""
-            WITH All_Orders A/home/asus_juan/Documents/GitHub/insight-commerce-recsys/.envS (
+            WITH All_Orders AS (
                 SELECT order_id, product_id, add_to_cart_order, reordered
                 FROM Orders_Schema.order_products_prior
                 UNION ALL

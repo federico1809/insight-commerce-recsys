@@ -12,19 +12,23 @@ from faker import Faker
 from dotenv import load_dotenv
 from datetime import datetime
 
+# Rutas base del proyecto
+ROOT_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / '.env.example')
+
+LOG_DIR = ROOT_DIR / 'src' / 'data' / 'reports' / 'logs'
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 # Configuracion inicial para guardar los logs para asi ver en que nos equivocamos y guardar un reporte
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('./reports/logs/data_ingestation.log'), # Path donde se guarda el archivo con los logs
+        logging.FileHandler(LOG_DIR / 'data_ingestation.log'),
         logging.StreamHandler()
     ]
 )
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / '.env')
-load_dotenv(ROOT_DIR / '.env.example')
 
 # Las buscamos en nuestro .env
 local_host = os.getenv('local_host')
@@ -104,15 +108,26 @@ class DataIngestation:
 
     def table_has_records(self, schema, table):
         """
-        Verifica si una tabla ya contiene registros.
+        Verifica si una tabla existe y ya contiene registros.
 
         Args:
             schema (str): Esquema de la tabla.
             table (str): Nombre de la tabla.
 
         Returns:
-            bool: True si la tabla tiene al menos un registro.
+            bool: True si la tabla existe y tiene al menos un registro.
         """
+        self.cursor.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = %s AND table_name = %s
+            )
+            """,
+            (schema, table)
+        )
+        if not self.cursor.fetchone()[0]:
+            return False
         self.cursor.execute(f"SELECT EXISTS (SELECT 1 FROM {schema}.{table} LIMIT 1)")
         return self.cursor.fetchone()[0]
 
@@ -311,6 +326,27 @@ class DataIngestation:
         
         logging.info("\n Resumen guardado en generation_summary.json")   
     
+    def setup_database(self):
+        """
+        Crea los esquemas y tablas necesarios ejecutando el script SQL de creación.
+        Se usa IF NOT EXISTS, por lo que es seguro llamarlo siempre.
+        """
+        sql_path = ROOT_DIR / 'data' / 'local_database' / 'InstaCart_DataBase_Creation.sql'
+        if not sql_path.exists():
+            logging.error(f"Script SQL no encontrado: {sql_path}")
+            return
+        logging.info(f"Ejecutando script de creación de base de datos: {sql_path}")
+        try:
+            with open(sql_path, 'r', encoding='utf-8') as f:
+                sql = f.read()
+            self.cursor.execute(sql)
+            self.connection.commit()
+            logging.info("Esquemas y tablas creados/verificados correctamente.")
+        except Exception as e:
+            self.connection.rollback()
+            logging.error(f"Error al ejecutar el script SQL: {e}")
+            raise
+
     def run_etl(self, csv_directory):
         """
         Ejecuta el proceso general de ETL: crea datos sintéticos de usuarios y órdenes,
@@ -321,6 +357,8 @@ class DataIngestation:
         """
         if not self.connect():
             return
+
+        self.setup_database()
 
         if self.table_has_records('users_schema', 'users'):
             current_users = self.get_table_count('users_schema', 'users')
