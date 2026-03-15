@@ -211,6 +211,8 @@ data/raw/
 data/processed/
 /models/
 .env
+models
+
 # MLflow
 mlruns/
 #Ignora los csv
@@ -219,3 +221,4 @@ mlruns/
 /mlartifacts
 notebooks/catboost_info
 mlflow.db
+*.csv
