@@ -46,14 +46,14 @@ def _build_db_url() -> str:
     Usamos URL.create() en lugar de f-string para manejar correctamente
     caracteres especiales en la contraseña (ej: @, #, %).
     """
-    return URL.create(
+    return str(URL.create(
         drivername = 'postgresql+psycopg2',
         username   = os.getenv('AWS_USER'),
         password   = os.getenv('AWS_PASSWORD'),
         host       = os.getenv('AWS_HOST'),
-        port       = os.getenv('AWS_PORT'),
+        port       = int(os.getenv('AWS_PORT', '5432')),
         database   = os.getenv('AWS_DATABASE'),
-    )
+    ))
 
 # ─── Configuración de tablas ──────────────────────────────────────────────────
 # Tablas disponibles en el schema dimensional de AWS RDS
