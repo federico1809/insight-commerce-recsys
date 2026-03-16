@@ -209,11 +209,21 @@ __marimo__/
 # Datos y modelos
 data/raw/
 data/processed/
-models/
+models/*.pkl
+models/*.json
+models/*.parquet
+
 .env
 
 # MLflow
 mlruns/
-
 #Ignora los csv
 *.csv
+
+/mlartifacts
+notebooks/catboost_info
+mlflow.db
+*.csv
+
+# Reports generados localmente
+reports/data/
