@@ -18,11 +18,13 @@ Umbrales de alerta:
     KS >= 0.30  → diferencia estadística significativa entre distribuciones
 """
 
+import io
 import json
 import logging
 import os
 import sys
 
+import boto3
 import numpy as np
 import pandas as pd
 
@@ -38,6 +40,9 @@ FEATURE_MATRIX_PATH = os.getenv(
 REFERENCE_PATH = os.getenv(
     "REFERENCE_PATH", "data/processed/feature_matrix_reference.parquet"
 )
+
+S3_BUCKET = os.getenv("S3_BUCKET", "insight-commerce-artifacts")
+USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
 
 # Features numéricas a monitorear — se excluyen NaN intencionales y columnas categóricas
 MONITORED_FEATURES = [
@@ -104,13 +109,46 @@ def _load_data(
     """
     Carga los DataFrames de referencia y actual.
 
-    Si no existe reference_path, loguea un warning y devuelve (None, None)
-    para que compute_drift_metrics salga sin error.
+    Si USE_S3=true, descarga desde S3 usando el nombre de archivo como key.
+    Si USE_S3=false (default), lee desde disco local.
 
     Returns
     -------
     tuple (df_ref, df_curr) o (None, None) si no hay parquet de referencia.
     """
+    if USE_S3:
+        s3 = boto3.client("s3")
+        current_key = os.path.basename(current_path)
+        ref_key = os.path.basename(reference_path)
+
+        try:
+            buf = io.BytesIO()
+            s3.download_fileobj(S3_BUCKET, current_key, buf)
+            buf.seek(0)
+            df_curr = pd.read_parquet(buf)
+        except Exception:
+            logging.error(f"No se encontró feature_matrix en S3 (key='{current_key}').")
+            sys.exit(1)
+
+        try:
+            buf = io.BytesIO()
+            s3.download_fileobj(S3_BUCKET, ref_key, buf)
+            buf.seek(0)
+            df_ref = pd.read_parquet(buf)
+        except Exception:
+            logging.warning(
+                f"No se encontró parquet de referencia en S3 (key='{ref_key}'). "
+                "Saltando monitoreo de drift — se necesitan al menos dos corridas del pipeline "
+                "para comparar distribuciones. Ejecutar de nuevo tras el primer reentrenamiento."
+            )
+            return None, None
+
+        logging.info(
+            f"Referencia cargada desde S3 (key='{ref_key}') "
+            f"({len(df_ref):,} filas). Actual: {len(df_curr):,} filas."
+        )
+        return df_ref, df_curr
+
     if not os.path.exists(current_path):
         logging.error(f"No se encontró feature_matrix en '{current_path}'.")
         sys.exit(1)
