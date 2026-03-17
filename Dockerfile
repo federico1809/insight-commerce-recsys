@@ -14,7 +14,7 @@
 # ── Stage 1: builder (compilación de dependencias) ────────────────────────────
 # Separar la instalación de dependencias del código fuente maximiza el cache:
 # si solo cambia src/, esta capa no se reconstruye en el próximo build.
-FROM python:3.9-slim AS builder
+FROM python:3.10-slim AS builder
 
 WORKDIR /build
 
@@ -33,7 +33,7 @@ RUN pip install --upgrade pip --no-cache-dir \
 
 
 # ── Stage 2: runtime (imagen final mínima) ────────────────────────────────────
-FROM python:3.9-slim AS runtime
+FROM python:3.10-slim AS runtime
 
 # libpq5 es la librería de runtime de PostgreSQL requerida por psycopg2.
 # Solo se instala el runtime (sin gcc ni headers de compilación).
@@ -43,8 +43,8 @@ RUN apt-get update \
 
 # Copia solo los paquetes Python instalados desde el stage builder.
 # Esto excluye gcc, libpq-dev y todo el toolchain de compilación.
-COPY --from=builder /usr/local/lib/python3.9/site-packages \
-                    /usr/local/lib/python3.9/site-packages
+COPY --from=builder /usr/local/lib/python3.10/site-packages \
+                    /usr/local/lib/python3.10/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 WORKDIR /app
