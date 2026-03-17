@@ -38,16 +38,16 @@ FROM python:3.10-slim AS runtime
 # libpq5 es la librería de runtime de PostgreSQL requerida por psycopg2.
 # Solo se instala el runtime (sin gcc ni headers de compilación).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 \
+    && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
 
 # Copia solo los paquetes Python instalados desde el stage builder.
 # Esto excluye gcc, libpq-dev y todo el toolchain de compilación.
 COPY --from=builder /usr/local/lib/python3.10/site-packages \
                     /usr/local/lib/python3.10/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-
-WORKDIR /app
 
 # Copia manteniendo la estructura original dentro de /app
 COPY src/api/ src/api/
