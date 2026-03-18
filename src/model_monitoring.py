@@ -18,11 +18,14 @@ Umbrales de alerta:
     KS >= 0.30  → diferencia estadística significativa entre distribuciones
 """
 
+import io
 import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
+import boto3
 import numpy as np
 import pandas as pd
 
@@ -38,6 +41,17 @@ FEATURE_MATRIX_PATH = os.getenv(
 REFERENCE_PATH = os.getenv(
     "REFERENCE_PATH", "data/processed/feature_matrix_reference.parquet"
 )
+
+S3_BUCKET = os.getenv("S3_BUCKET", "insight-commerce-artifacts")
+USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
+
+# Claves S3 para las distribuciones de referencia y actual.
+# Configurable por variable de entorno para soportar distintos entornos.
+# - S3_CURRENT_KEY : snapshot semanal generado por el job build-snapshot
+# - S3_REFERENCE_KEY: baseline fijo guardado tras el último reentrenamiento
+S3_CURRENT_KEY = os.getenv("S3_CURRENT_KEY", "monitoring/actual/feature_matrix.parquet")
+S3_REFERENCE_KEY = os.getenv("S3_REFERENCE_KEY", "feature_matrix_reference.parquet")
+AWS_ACCOUNT_ID = os.getenv("AWS_ACCOUNT_ID", "")
 
 # Features numéricas a monitorear — se excluyen NaN intencionales y columnas categóricas
 MONITORED_FEATURES = [
@@ -104,15 +118,57 @@ def _load_data(
     """
     Carga los DataFrames de referencia y actual.
 
-    Si no existe reference_path, loguea un warning y devuelve (None, None)
-    para que compute_drift_metrics salga sin error.
+    Si USE_S3=true, descarga desde S3 usando S3_CURRENT_KEY y S3_REFERENCE_KEY.
+    Si USE_S3=false (default), lee desde disco local.
 
     Returns
     -------
     tuple (df_ref, df_curr) o (None, None) si no hay parquet de referencia.
     """
+    if USE_S3:
+        s3 = boto3.client("s3")
+        # Usa las claves S3 configuradas por variable de entorno, no el basename del path local.
+        # Esto permite rutas anidadas como "monitoring/actual/feature_matrix.parquet".
+        current_key = S3_CURRENT_KEY
+        ref_key = S3_REFERENCE_KEY
+
+        try:
+            buf = io.BytesIO()
+            s3.download_fileobj(S3_BUCKET, current_key, buf, ExtraArgs={"ExpectedBucketOwner": AWS_ACCOUNT_ID})
+            buf.seek(0)
+            df_curr = pd.read_parquet(buf)
+        except Exception as e:
+            logging.error(
+                f"Error crítico al descargar feature_matrix desde S3 "
+                f"(bucket='{S3_BUCKET}', key='{current_key}'): {e}. "
+                "Verificar credenciales AWS y que el archivo exista en el bucket."
+            )
+            sys.exit(1)
+
+        try:
+            buf = io.BytesIO()
+            s3.download_fileobj(S3_BUCKET, ref_key, buf, ExtraArgs={"ExpectedBucketOwner": AWS_ACCOUNT_ID})
+            buf.seek(0)
+            df_ref = pd.read_parquet(buf)
+        except Exception as e:
+            logging.warning(
+                f"No se encontró parquet de referencia en S3 (bucket='{S3_BUCKET}', key='{ref_key}'): {e}. "
+                "Saltando monitoreo de drift — se necesitan al menos dos corridas del pipeline "
+                "para comparar distribuciones. Ejecutar de nuevo tras el primer reentrenamiento."
+            )
+            return None, None
+
+        logging.info(
+            f"Referencia cargada desde S3 (key='{ref_key}') "
+            f"({len(df_ref):,} filas). Actual: {len(df_curr):,} filas."
+        )
+        return df_ref, df_curr
+
     if not os.path.exists(current_path):
-        logging.error(f"No se encontró feature_matrix en '{current_path}'.")
+        logging.error(
+            f"No se encontró feature_matrix en '{current_path}'. "
+            "Asegurarse de que el pipeline de features haya corrido antes de ejecutar el monitoreo."
+        )
         sys.exit(1)
 
     if not os.path.exists(reference_path):
@@ -148,7 +204,7 @@ def compute_drift_metrics(
 
     Returns
     -------
-    dict con psi, ks, drift_detected y breakdowns por feature.
+    dict con timestamp, triggered_by, retrain_run_id, psi, ks, drift_detected y breakdowns por feature.
     """
     logging.info("Iniciando escaneo de Data Drift (Métricas PSI y KS)...")
 
@@ -164,7 +220,9 @@ def compute_drift_metrics(
     ]
     if not available:
         logging.error(
-            "Ninguna de las features monitoreadas existe en los datos. Abortando."
+            f"Ninguna de las features monitoreadas ({MONITORED_FEATURES}) existe en los datos. "
+            f"Columnas disponibles en referencia: {list(df_ref.columns)}. "
+            "Revisar que el pipeline de features genere las columnas esperadas."
         )
         sys.exit(1)
 
@@ -176,7 +234,10 @@ def compute_drift_metrics(
         cur_vals = df_curr[feat].dropna().values.astype(float)
 
         if len(ref_vals) == 0 or len(cur_vals) == 0:
-            logging.warning(f"  '{feat}': sin valores válidos, se omite.")
+            logging.warning(
+                f"  '{feat}': sin valores válidos tras eliminar NaN "
+                f"(ref={len(ref_vals)}, actual={len(cur_vals)}). Se omite esta feature."
+            )
             continue
 
         psi_by_feature[feat] = round(_compute_psi(ref_vals, cur_vals), 4)
@@ -187,7 +248,10 @@ def compute_drift_metrics(
         )
 
     if not psi_by_feature:
-        logging.error("No se pudieron calcular métricas para ninguna feature.")
+        logging.error(
+            "No se pudieron calcular métricas para ninguna feature — todas fueron omitidas por falta de valores válidos. "
+            "Revisar calidad de datos en el parquet de entrada."
+        )
         sys.exit(1)
 
     psi = round(float(np.mean(list(psi_by_feature.values()))), 3)
@@ -195,6 +259,9 @@ def compute_drift_metrics(
     drift_detected = bool(psi > 0.25 or ks > 0.3)
 
     result = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "triggered_by": os.getenv("DRIFT_TRIGGERED_BY", "manual"),
+        "retrain_run_id": os.getenv("GITHUB_RUN_ID", ""),
         "psi": psi,
         "ks": ks,
         "drift_detected": drift_detected,
@@ -204,12 +271,13 @@ def compute_drift_metrics(
 
     if drift_detected:
         logging.warning(
-            f"ALERTA DE DRIFT: métricas superan el umbral. PSI={psi}, KS={ks}"
+            f"ALERTA DE DRIFT: las métricas superan los umbrales de estabilidad "
+            f"(PSI={psi} umbral=0.25, KS={ks} umbral=0.30). "
+            "Acción recomendada: evaluar reentrenamiento del modelo con datos recientes."
         )
-        logging.warning("Acción recomendada: evaluar reentrenamiento del modelo.")
     else:
         logging.info(
-            f"Métricas estables. PSI={psi}, KS={ks}. No se requiere reentrenar."
+            f"Distribución estable. PSI={psi} (<0.25), KS={ks} (<0.30). No se requiere reentrenar."
         )
 
     output_path = os.path.join(output_dir, "drift_report.json")

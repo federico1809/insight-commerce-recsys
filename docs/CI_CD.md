@@ -1,186 +1,467 @@
 # CI/CD — insight-commerce-recsys
 
-Pipeline de integración y entrega continua basado en GitHub Actions.
+Pipeline de integración y entrega continua basado en GitHub Actions, dividido en dos workflows independientes con responsabilidades separadas.
+
+---
+
+## Dos workflows, dos responsabilidades
+
+| Workflow | Archivo | Trigger | Propósito |
+|----------|---------|---------|-----------|
+| **CI** | `ci.yml` | push / pull_request | Calidad de código: tests, tipos, cobertura |
+| **CD** | `cd.yml` | `ci.yml` exitoso en main / manual | Deploy de código a ECS: rolling update + health check |
+| **MLOps** | `mlops.yml` | cron semanal / manual | Pipeline MLOps: snapshot → drift → retrain → deploy |
 
 ---
 
 ## Estructura del pipeline
 
 ```
-push (main, develop, feature/**, fix/**) / pull_request (main, develop)
+ci.yml — push (main, develop, feature/**, fix/**) / pull_request (main, develop)
         │
-        └─── test ── instala deps → pytest --cov → mypy → SonarCloud scan
+        └─── test
+               ├─ pip install -r requirements.txt
+               ├─ pytest --cov=src → coverage.xml
+               ├─ mypy src/
+               └─ SonarCloud scan
+                       │
+                       │ ci.yml exitoso en main
+                       ▼
+cd.yml — workflow_run (ci.yml completed) / workflow_dispatch (skip_deploy)
+        │
+        └─── deploy
+               ├─ [skip si skip_deploy=true] aws ecs update-service --force-new-deployment
+               ├─ [skip si skip_deploy=true] aws ecs wait services-stable
+               ├─ health check GET /health → ALB (5 reintentos)
+               ├─ smoke test POST /recommend
+               ├─ rollback automático a task definition anterior si falla
+               └─ GitHub Issue si deploy falla
 
-push a main / workflow_dispatch
-        │
-        ├─── data-validation ── validate_data.py → validation_report.json
-        │           │ (bloquea retrain si falla)
-        └─── retrain (drift-gated, needs: data-validation)
-                │
-                ├─ 1. model_monitoring.py → drift_report.json
-                ├─ 2. lee drift_detected
-                ├─ 3. si false → job termina sin entrenar
-                └─ 4. si true  → pipeline.py --trials 50 → rollback check → sube artefactos
 
-schedule (lunes 8am UTC)
+mlops.yml — schedule (domingos 23:00 UTC) / workflow_dispatch
         │
-        └─── drift_check
-                │
-                ├─ 1. model_monitoring.py → drift_report.json
-                ├─ 2. lee drift_detected
-                ├─ 3. si true → dispara retrain via workflow_dispatch (API)
-                └─ 4. si true → crea Issue en GitHub con label "data-drift"
+        └─── build-snapshot
+               ├─ RDS → build_feature_matrix() en memoria
+               └─ upload → s3://insight-commerce-artifacts/monitoring/actual/feature_matrix.parquet
+                       │
+                       └─── drift-check (needs: build-snapshot)
+                              ├─ descarga baseline (feature_matrix_reference.parquet)
+                              ├─ descarga actual (monitoring/actual/feature_matrix.parquet)
+                              ├─ PSI + KS por feature → drift_report.json
+                              ├─ si drift → GitHub Issue label "data-drift"
+                              └─ output: drift_detected (true/false)
+                                      │
+                              drift_detected == true
+                                      │
+                                      └─── retrain (needs: drift-check)
+                                             ├─ pipeline.py --trials 50 (RDS → features → Optuna → train)
+                                             ├─ rollback check (F1 nuevo vs anterior)
+                                             ├─ si ok    → sube artefactos a S3 + GitHub Issue "primer train" (si aplica)
+                                             ├─ si rollback → job falla + GitHub Issue "rollback"
+                                             └─ result == 'success'
+                                                     │
+                                                     └─── deploy (needs: retrain)
+                                                            ├─ aws ecs update-service --force-new-deployment
+                                                            ├─ aws ecs wait services-stable
+                                                            ├─ health check GET /health → ALB (5 reintentos)
+                                                            ├─ smoke test POST /recommend
+                                                            ├─ rollback automático si falla
+                                                            └─ GitHub Issue si deploy falla
 ```
-
-El job `test` corre en push y pull_request (no en schedule). El job `data-validation` y `retrain` solo corren en push a `main` o ejecución manual — `retrain` requiere que `data-validation` pase. El job `drift_check` solo corre en el trigger semanal.
 
 ---
 
 ## Triggers
 
-| Evento | Job activado | Branches / condición |
-|---|---|---|
-| `push` | `test` | `main`, `develop`, `feature/**`, `fix/**` |
-| `pull_request` | `test` | `main`, `develop` |
-| `push` a `main` | `data-validation` → `retrain` | rama `main` |
-| `workflow_dispatch` | `data-validation` → `retrain` | manual desde GitHub UI |
-| `schedule` (cron) | `drift_check` | lunes 8am UTC |
+### `ci.yml`
+
+| Evento | Job activado |
+|--------|-------------|
+| `push` a `main`, `develop`, `feature/**`, `fix/**` | `test` |
+| `pull_request` hacia `main`, `develop` | `test` |
+| `workflow_dispatch` | `test` |
+
+### `cd.yml`
+
+| Evento | Jobs activados | Condición |
+|--------|----------------|-----------|
+| `workflow_run` — `ci.yml` completado en `main` | `deploy` | Solo si `ci.yml` terminó con `success` |
+| `workflow_dispatch` con `skip_deploy=false` (default) | `deploy` completo | ECS rolling update + health check |
+| `workflow_dispatch` con `skip_deploy=true` | Solo health check + smoke test | ECS no se toca — útil para verificar prod sin deployar |
+
+### `mlops.yml`
+
+| Evento | Jobs activados | Condición |
+|--------|----------------|-----------|
+| `schedule` — domingos 23:00 UTC | `build-snapshot → drift-check → retrain → deploy` | retrain solo si drift detectado |
+| `workflow_dispatch` con `skip_snapshot=true` | `drift-check → retrain → deploy` | usa datos ya existentes en S3 |
+| `workflow_dispatch` con `force_retrain=true` | `build-snapshot → drift-check → retrain → deploy` | retrain aunque no haya drift |
 
 ---
 
-## Jobs
+## Jobs — `ci.yml`
 
-### 1. `test` — Tests + type check + cobertura
+### `test` — Tests + type check + SonarCloud
 
 **Runner:** `ubuntu-latest` · **Python:** `3.10`
 
 | Paso | Descripción |
-|---|---|
-| `actions/checkout@v4` | Clona el repositorio |
-| `actions/setup-python@v5` | Instala Python 3.10 con caché de pip |
+|------|-------------|
+| `actions/checkout@v4` | Clona el repositorio con historial completo (`fetch-depth: 0`) |
+| `actions/setup-python@v5` | Python 3.10 con caché de pip |
 | Install dependencies | `pip install -r requirements.txt` + `pytest pytest-cov mypy` |
-| Run tests | `pytest --cov=src --cov-report=xml` — cobertura sobre todo `src/` |
-| Type check (mypy) | `mypy src/ --ignore-missing-imports --no-strict-optional` — último paso antes de SonarCloud |
-| SonarCloud Scan | Análisis estático + cobertura. Consume `coverage.xml` generado en el paso anterior. |
-
-El reporte de cobertura se genera en `coverage.xml` (formato Cobertura, compatible con SonarCloud). mypy corre como penúltimo paso dentro de este mismo job, sin ser un job separado.
+| Run tests | `pytest --cov=src --cov-report=xml:coverage.xml` |
+| Type check | `mypy src/ --ignore-missing-imports --no-strict-optional` |
+| SonarCloud Scan | Análisis estático + cobertura. Consume `coverage.xml`. |
 
 ---
 
-### 2. `data-validation` — Validación del feature matrix
+## Jobs — `cd.yml`
+
+### `deploy` — Deploy de código a ECS
 
 **Runner:** `ubuntu-latest`
-**Trigger:** push a `main` o `workflow_dispatch` (mismo que `retrain`)
+**Trigger:** `ci.yml` exitoso en `main`, o `workflow_dispatch`
 
-Corre `src/data/validate_data` sobre el feature matrix antes del entrenamiento. Si el parquet no existe (primer run del pipeline), el script termina con código 0 (skip) sin bloquear. Si existe y hay errores, el job falla y **bloquea `retrain`**.
+Deploya cambios de código a ECS sin reentrenar el modelo. El modelo en S3 no se toca — solo se reinicia el contenedor para que levante con el código nuevo.
 
 | Paso | Descripción |
-|---|---|
-| Run data validation | `python -m src.data.validate_data` → escribe `reports/data/validation_report.json` |
-| Upload validation report | Sube el reporte como artefacto (retención 7 días), siempre (`if: always()`) |
+|------|-------------|
+| Configure AWS credentials | IAM via `aws-actions/configure-aws-credentials@v4` |
+| Force new ECS deployment | `aws ecs update-service --force-new-deployment` — omitido si `skip_deploy=true` |
+| Wait for stability | `aws ecs wait services-stable` — omitido si `skip_deploy=true` |
+| Health check post-deploy | `GET /health` contra ALB (5 reintentos, 10s entre intentos) |
+| Smoke test del modelo | `POST /recommend` con `user_id: 1` — valida que el modelo responde |
+| Rollback automático | Si falla: restaura task definition anterior via `aws ecs update-service --task-definition` |
+| Notify deploy failure | GitHub Issue con labels `rollback`, `cd`, `deploy` |
 
-**Validaciones ejecutadas** (definidas en `src/data/validate_data.py`):
-- Todas las 26 columnas del contrato presentes (`FEATURE_MATRIX_COLUMNS`)
-- Sin nulos en columnas no-nulables (`NON_NULLABLE_COLUMNS`)
-- Sin pares `(user_key, product_key)` duplicados
-- `label` solo contiene 0 o 1
-- `up_times_purchased > 0`
-- `user_total_orders > 0`
+> **`skip_deploy=true`:** permite correr solo el health check y smoke test sin tocar ECS. Útil para el primer merge a main cuando el código ya está en producción.
 
 ---
 
-### 3. `retrain` — Reentrenamiento condicional por drift
+## Jobs — `mlops.yml`
+
+### 1. `build-snapshot` — Snapshot semanal de features
 
 **Runner:** `ubuntu-latest`
-**Trigger:** push a `main`, `workflow_dispatch` (manual o disparado por `drift_check`)
-**Depende de:** `data-validation` (si falla, `retrain` no corre)
+**Se omite si:** `workflow_dispatch` con `skip_snapshot=true`
 
-El entrenamiento **solo se ejecuta si hay drift detectado**. Al final del entrenamiento, el mecanismo de rollback compara el F1 nuevo con el anterior: si el F1 nuevo es más de 5% inferior, los artefactos no se sobreescriben y el job falla con un mensaje claro.
+Conecta a RDS, construye la feature matrix completa en memoria y la sube a S3. Este archivo es la distribución "actual" que el job `drift-check` comparará contra el baseline del último reentrenamiento.
 
 | Paso | Descripción |
-|---|---|
-| Run model monitoring | Corre `src/model_monitoring.py` → genera `drift_report.json` (PSI + KS). Si no hay datos de referencia, el script termina sin error y el JSON no se escribe. |
-| Check drift | Lee `drift_report.json`. Si no existe o `drift_detected` es `false`, el job termina sin entrenar. |
-| Run pipeline (Optuna 50 trials) | Solo si `drift_detected` es `true`. Corre `python -m src.pipeline --trials 50`. Incluye validación en memoria y rollback check. |
-| Upload model artifacts | Sube `models/model.pkl`, `models/cluster_models.pkl` y `models/model_log.json` (retención 30 días). Solo si hubo reentrenamiento sin rollback. |
+|------|-------------|
+| Configure AWS credentials | IAM via `aws-actions/configure-aws-credentials@v4` |
+| Build and upload snapshot | `python -m src.pipeline --snapshot-only` → `s3://.../monitoring/actual/feature_matrix.parquet` |
 
-**Umbrales de drift** (definidos en `src/model_monitoring.py`):
-- PSI ≥ 0.25 → drift significativo
-- KS ≥ 0.30 → diferencia estadística significativa
-- Basta con que uno supere el umbral para que `drift_detected = true`
+**S3 destino:** `s3://insight-commerce-artifacts/monitoring/actual/feature_matrix.parquet`
+
+> **¿Por qué un snapshot separado del reentrenamiento?**
+> El drift check debe ser una comparación estadística rápida y aislada de fallos de infraestructura. Si la conexión a RDS fallara dentro del mismo job de drift, el fallo sería indistinguible de un problema estadístico. Separar la carga de datos (job A) del análisis de drift (job B) garantiza trazabilidad: el parquet en S3 queda como evidencia de qué datos exactamente dispararon la alerta.
+
+---
+
+### 2. `drift-check` — Detección de drift PSI + KS
+
+**Runner:** `ubuntu-latest`
+**Depende de:** `build-snapshot` (o se ejecuta con datos ya en S3 si `skip_snapshot=true`)
+**Output:** `drift_detected` (true/false)
+
+Descarga dos parquets desde S3 y compara sus distribuciones para 8 features clave. No accede a RDS.
+
+| Paso | Descripción |
+|------|-------------|
+| Configure AWS credentials | IAM via `aws-actions/configure-aws-credentials@v4` |
+| Run drift monitoring | `python -m src.model_monitoring` → `drift_report.json` |
+| Parse drift result | Lee `drift_report.json`, escribe `drift_detected` al output y al Step Summary |
+| Upload drift report | Sube `drift_report.json` como artefacto (retención 90 días) |
+| Create GitHub Issue | Solo si `drift_detected=true`. Label: `data-drift`. |
+
+**Archivos S3 comparados:**
+
+| Rol | S3 key | Escrito por |
+|-----|--------|-------------|
+| Actual (semanal) | `monitoring/actual/feature_matrix.parquet` | `build-snapshot` |
+| Referencia (baseline) | `feature_matrix_reference.parquet` | `retrain` (tras cada reentrenamiento) |
+
+**Schema de `drift_report.json`:**
+
+```json
+{
+  "timestamp":      "2026-03-17T23:01:42.000000+00:00",
+  "triggered_by":   "weekly_schedule",
+  "retrain_run_id": "12345678",
+  "psi":            0.31,
+  "ks":             0.28,
+  "drift_detected": true,
+  "psi_by_feature": {
+    "user_total_orders":     0.12,
+    "user_avg_basket_size":  0.08,
+    "user_reorder_ratio":    0.41,
+    "product_total_purchases": 0.05,
+    "product_reorder_rate":  0.09,
+    "up_times_purchased":    0.33,
+    "up_reorder_rate":       0.29,
+    "up_days_since_last":    0.11
+  },
+  "ks_by_feature": { "...": "..." }
+}
+```
+
+**Umbrales de alerta** (definidos en `src/model_monitoring.py`):
+
+| Métrica | Umbral | Consecuencia |
+|---------|--------|-------------|
+| PSI | `>= 0.25` | `drift_detected = true` → dispara `retrain` |
+| KS  | `>= 0.30` | `drift_detected = true` → dispara `retrain` |
+| PSI | `0.10 – 0.24` | Cambio moderado — monitorear pero no retrain |
+| PSI | `< 0.10` | Distribución estable |
+
+> **¿Por qué chequeo semanal?** Los patrones de compra en e-commerce cambian lentamente — estacionalidad, promociones, cambios de catálogo. Un chequeo semanal es suficiente para detectar cambios relevantes sin incurrir en costos innecesarios de cómputo.
+
+---
+
+### 3. `retrain` — Reentrenamiento drift-gated
+
+**Runner:** `ubuntu-latest`
+**Trigger:** `drift_detected == true` o `force_retrain == true`
+**Depende de:** `drift-check`
+
+Ejecuta el pipeline completo: carga RDS → feature engineering → validación → Optuna 50 trials → LightGBM. Si el F1 nuevo degrada más del 5%, el mecanismo de rollback bloquea la sobreescritura de artefactos.
+
+| Paso | Descripción |
+|------|-------------|
+| Configure AWS credentials | IAM via `aws-actions/configure-aws-credentials@v4` |
+| Check if first training run | `aws s3 ls s3://.../model_log.json` para determinar si es el primer entrenamiento |
+| Run full pipeline | `python -m src.pipeline --trials 50` con `USE_S3=true` |
+| Upload model artifacts | `model.pkl`, `cluster_models.pkl`, `model_log.json` como artefactos de GitHub (retención 90 días) |
+| Publish training summary | F1 y AUC al Step Summary de GitHub Actions |
+| GitHub Issue — primer entrenamiento | Solo si es el primer modelo: notificación con métricas y artefactos. Label: `mlops` |
+| GitHub Issue — rollback | Solo si el job falla: notificación con contexto y acciones recomendadas. Label: `rollback` |
+
+**Artefactos subidos a S3 tras reentrenamiento exitoso:**
+
+| Archivo S3 | Descripción |
+|------------|-------------|
+| `model.pkl` | Modelo LightGBM serializado |
+| `cluster_models.pkl` | KMeans + StandardScaler (usuario y producto) |
+| `model_log.json` | Métricas, feature_cols, parámetros, timestamp |
+| `feature_matrix_reference.parquet` | Nuevo baseline para el próximo drift check |
 
 **Rollback** (definido en `src/models/train.py`):
-- Si `models/model_log.json` existe, se compara F1 nuevo vs F1 anterior
-- Si `F1_nuevo < F1_anterior × 0.95` → `RuntimeError`, job falla, artefactos no sobreescritos
+
+- Compara F1 nuevo vs F1 del `model_log.json` anterior (en S3 o en disco)
+- Si `F1_nuevo < F1_anterior × 0.95` → `RuntimeError`, job falla, **artefactos en S3 no se modifican**
+- Si no existe `model_log.json` previo → primer entrenamiento, rollback omitido
 
 ---
 
-### 4. `drift_check` — Chequeo semanal de drift
+### 4. `deploy` — Force deploy a ECS Fargate
 
 **Runner:** `ubuntu-latest`
-**Trigger:** `schedule` — cron `0 8 * * 1` (lunes 8am UTC)
+**Trigger:** `retrain.result == 'success'`
+**Depende de:** `retrain`
 
-Corre automáticamente cada lunes para detectar si la distribución de los datos de producción se alejó de los datos de referencia. Si se detecta drift, dispara el job `retrain` vía `workflow_dispatch` y crea un Issue en GitHub con label `data-drift`.
+Fuerza un nuevo deployment en ECS Fargate sin reconstruir la imagen Docker. Los tasks nuevos descargan los artefactos actualizados desde S3 al arrancar (`USE_S3=true` en la task definition).
 
 | Paso | Descripción |
-|---|---|
-| Run model monitoring | Corre `src/model_monitoring.py` → genera `drift_report.json` (PSI + KS) |
-| Check drift | Lee `drift_report.json`. Si no existe o `drift_detected` es `false`, el job termina sin hacer nada. |
-| Upload drift report | Sube `drift_report.json` como artefacto (retención 30 días). Solo si drift detectado. |
-| Trigger retrain | Solo si `drift_detected` es `true`: llama a la API de GitHub para disparar `workflow_dispatch` sobre `main`. |
-| Create GitHub Issue | Solo si `drift_detected` es `true`: crea Issue con título `[drift] Data drift detectado — YYYY-MM-DD`, body con PSI y KS, y label `data-drift` (se crea si no existe). |
+|------|-------------|
+| Configure AWS credentials | IAM via `aws-actions/configure-aws-credentials@v4` |
+| Force new ECS deployment | `aws ecs update-service --force-new-deployment` |
+| Wait for stability | `aws ecs wait services-stable` — bloquea hasta que el servicio esté estable |
+| Health check post-deploy | `GET /health` contra ALB (5 reintentos, 10s entre intentos) |
+| Smoke test del modelo | `POST /recommend` con `user_id: 1` — valida que el modelo responde correctamente |
+| Rollback automático | Si health check o smoke test fallan: restaura task definition anterior |
+| Notify deploy failure | GitHub Issue con label `rollback`, `mlops`, `deploy` si el deploy falla |
 
-> **¿Por qué chequeo semanal?** Los patrones de compra en supermercados online cambian lentamente — estacionalidad, promociones, cambios de catálogo — a diferencia de sistemas financieros o de fraude donde el drift puede ocurrir en horas. Un chequeo semanal es suficiente para detectar cambios de distribución relevantes sin incurrir en costos de cómputo innecesarios.
+**Infraestructura ECS:**
+
+| Campo | Valor |
+|-------|-------|
+| Cluster | `insight-commerce-cluster` |
+| Servicio | `insight-api-service` |
+| Task definition | `insight-commerce-task` |
+| Contenedor | `api-container` |
+| Región | `us-east-2` |
+
+**Modelo de carga del modelo:**
+
+```
+ECS inicia task nuevo
+        │
+        └─ startup() en RecommendationService
+                │
+                └─ _load_artifacts() con USE_S3=true
+                        │
+                        ├─ s3://insight-commerce-artifacts/model.pkl
+                        ├─ s3://insight-commerce-artifacts/cluster_models.pkl
+                        └─ s3://insight-commerce-artifacts/model_log.json
+```
+
+El task role `ecsTaskRole-InsightCommerce` tiene política `AmazonS3ReadOnlyAccess`. No se requieren credenciales adicionales para la lectura desde S3.
 
 ---
 
-### SonarCloud — Análisis estático
+## CD — Estrategia de deploy
 
-Corre dentro del job `test` como último paso (no es un job separado).
+### Rolling Update con ECS Fargate (implementado)
 
-La configuración del proyecto está en [`sonar-project.properties`](../sonar-project.properties):
+La estrategia de deploy es **rolling update nativo de ECS**: `--force-new-deployment` ordena a ECS reemplazar los tasks existentes con tasks nuevos que usan la misma imagen Docker ya registrada en ECR, pero descargan el modelo actualizado desde S3 al iniciar.
 
-```properties
-sonar.projectKey=sofiaschanton_insight-commerce-recsys
-sonar.organization=sofiaschanton
-sonar.sources=src
-sonar.tests=tests
-sonar.python.coverage.reportPaths=coverage.xml
-sonar.exclusions=**/__pycache__/**,**/*.pyc,data/**,models/**,notebooks/**,reports/**
+**¿Por qué no se reconstruye la imagen Docker en cada retrain?**
+
+El código de la API no cambia entre retrains — solo cambian los artefactos del modelo en S3. Reconstruir y subir una imagen Docker (200-400 MB) para que el contenedor simplemente cargue un archivo diferente desde S3 es un overhead innecesario. El `force-new-deployment` logra el mismo resultado (modelo nuevo en producción) con menor latencia y menor consumo de red y almacenamiento en ECR.
+
+```
+retrain exitoso → model.pkl nuevo en S3
+        │
+        └─ aws ecs update-service --force-new-deployment
+                │
+                └─ ECS arranca tasks nuevos (misma imagen, modelo nuevo desde S3)
+                        │
+                        └─ aws ecs wait services-stable
+                                │
+                        ┌───────┴───────┐
+                   tasks OK         tasks fallan
+                        │                │
+                  deploy completo    ECS revierte automáticamente
+                                    (tasks previos siguen activos)
 ```
 
 ---
 
-## Setup inicial (una sola vez)
+### Rolling Update vs Blue/Green
 
-### 1. Agregar `SONAR_TOKEN` al repositorio
+| Criterio | Rolling Update (implementado) | Blue/Green (mejora futura) |
+|----------|-------------------------------|---------------------------|
+| **ALB requerido** | No | Sí (obligatorio) |
+| **Costo adicional** | Ninguno | Duplica tasks Fargate durante el deploy |
+| **Downtime** | Mínimo (segundos) | Zero (switch instantáneo en el ALB) |
+| **Rollback** | Automático si task falla al arrancar | Instantáneo via switch de tráfico en ALB |
+| **Complejidad** | Baja — nativo en ECS | Alta — requiere CodeDeploy + target groups + `appspec.yml` |
+| **Visibilidad** | Logs ECS + CloudWatch | CodeDeploy registra cada fase con gates |
+| **Adecuado para** | Proyecto actual (sin ALB, presupuesto controlado) | Producción con SLA estricto y tráfico crítico |
 
-1. Ir a [sonarcloud.io](https://sonarcloud.io) → tu organización → **Security** → generar token
-2. En GitHub: **Settings → Secrets and variables → Actions → New repository secret**
-3. Nombre: `SONAR_TOKEN` · Valor: el token generado
+**Blue/Green como mejora futura:** requiere ALB configurado con dos target groups (`blue` y `green`), AWS CodeDeploy application + deployment group, y `appspec.yml` en el repo. El job `deploy` en `mlops.yml` pasaría a usar `aws-actions/amazon-ecs-deploy-task-definition@v1` con configuración CodeDeploy. El resto del pipeline (snapshot → drift → retrain) no cambia.
 
-`GITHUB_TOKEN` es automático — GitHub lo provee en cada ejecución.
+---
 
-### 2. Habilitar el proyecto en SonarCloud
+## Secrets requeridos
 
-1. En SonarCloud: **+** → **Analyze new project** → seleccionar `insight-commerce-recsys`
-2. Elegir **GitHub Actions** como método de CI
-3. Desactivar el análisis automático de SonarCloud (para que no colisione con el workflow)
+Configurar en **Settings → Secrets and variables → Actions → New repository secret**.
+
+### `ci.yml`
+
+| Secret | Descripción | Estado |
+|--------|-------------|--------|
+| `SONAR_TOKEN` | Token de SonarCloud | Configurado |
+| `GITHUB_TOKEN` | Token automático de GitHub | Automático |
+
+### `cd.yml`
+
+**Secrets**
+
+| Secret | Descripción | Estado |
+|--------|-------------|--------|
+| `AWS_ACCESS_KEY_ID` | Credencial IAM (ECS) | Configurado |
+| `AWS_SECRET_ACCESS_KEY` | Credencial IAM | Configurado |
+| `ALB_DNS` | DNS del ALB para health check y smoke test | Configurado |
+
+**Variables**
+
+| Variable | Descripción | Estado |
+|----------|-------------|--------|
+| `AWS_REGION` | Región AWS (`us-east-2`) | Configurado |
+
+### `mlops.yml`
+
+**Secrets**
+
+| Secret | Descripción | Estado |
+|--------|-------------|--------|
+| `AWS_ACCESS_KEY_ID` | Credencial IAM (S3 + ECS) | Configurado |
+| `AWS_SECRET_ACCESS_KEY` | Credencial IAM | Configurado |
+| `AWS_HOST` | Host RDS PostgreSQL | Configurado |
+| `AWS_DATABASE` | Nombre de la base de datos | Configurado |
+| `AWS_USER` | Usuario RDS | Configurado |
+| `AWS_PASSWORD` | Contraseña RDS | Configurado |
+| `MLFLOW_TRACKING_URI` | URI del servidor MLflow (vacío = archivo local) | Configurado |
+| `ALB_DNS` | DNS del ALB para health check post-retrain | Configurado |
+
+**Variables**
+
+| Variable | Descripción | Estado |
+|----------|-------------|--------|
+| `AWS_REGION` | Región AWS (`us-east-2`) | Configurado |
+| `AWS_PORT` | Puerto RDS (`5432`) | Configurado |
+| `AWS_SSLMODE` | Modo SSL (`require`) | Configurado |
+
+**Permisos IAM mínimos requeridos para el usuario/rol:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject", "s3:PutObject", "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::insight-commerce-artifacts",
+        "arn:aws:s3:::insight-commerce-artifacts/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService", "ecs:DescribeServices"
+      ],
+      "Resource": "arn:aws:ecs:us-east-2:*:service/insight-commerce-cluster/insight-api-service"
+    }
+  ]
+}
+```
+
+---
+
+## Labels de GitHub usados
+
+| Label | Color | Creado por | Descripción |
+|-------|-------|------------|-------------|
+| `data-drift` | `#e4e669` | `drift-check` | Drift estadístico detectado en chequeo semanal |
+| `mlops` | `#0075ca` | `retrain` | Eventos del pipeline MLOps (primer entrenamiento) |
+| `rollback` | `#d93f0b` | `retrain`, `deploy` (cd + mlops) | Rollback de modelo o deploy activado |
+| `cd` | `#1d76db` | `deploy` (cd.yml) | Eventos del pipeline de entrega continua |
+| `deploy` | `#e99695` | `deploy` (cd.yml + mlops.yml) | Deploy fallido a ECS |
+
+Los labels se crean automáticamente si no existen (via `gh label create ... 2>/dev/null || true`).
 
 ---
 
 ## Tests cubiertos por el pipeline
 
 | Archivo | Qué valida |
-|---|---|
-| `tests/test_feature_engineering.py` | Leakage prior/train, separación `eval_set`, label solo desde train, NaN intencionales |
-| `tests/test_data_loader.py` | Schema del parquet (26 cols), nulos, label binario, pares únicos, rangos de valores |
-| `tests/test_inference.py` | Contrato de features: columnas faltantes, `n_features` mismatch, orden correcto |
-| `tests/test_train.py` | Split 70/15/15 por usuarios, ausencia de overlap entre conjuntos, claves y rango [0,1] de métricas |
-| `tests/test_model_monitoring.py` | PSI ≈ 0 con datos estables, `drift_detected=True` con distribución muy desplazada, estructura del reporte JSON |
-| `tests/test_integration.py` | Pipeline completo con datos sintéticos: schema de 26 cols, ausencia de leakage user-level, entrenamiento end-to-end |
+|---------|------------|
+| `tests/test_feature_engineering.py` | Leakage prior/train, NaN intencionales, segmentación |
+| `tests/test_data_loader.py` | Schema 26 cols, nulos, label binario, pares únicos |
+| `tests/test_inference.py` | Contrato de features: columnas faltantes, `n_features`, orden |
+| `tests/test_train.py` | Split 70/15/15 por usuarios, ausencia de overlap, métricas [0,1] |
+| `tests/test_model_monitoring.py` | PSI ≈ 0 con datos estables, `drift_detected=True` con drift real, schema del JSON |
+| `tests/test_validate_data.py` | 26 columnas, sin nulos no permitidos, sin duplicados, label binario |
+| `tests/test_integration.py` | Pipeline completo con datos sintéticos end-to-end |
 
-`test_data_loader.py` se **salta automáticamente** en CI si `data/processed/feature_matrix.parquet` no está commiteado (usa `pytest.skip`). Los demás tests usan datos sintéticos o mocks — no requieren DB ni archivos `.pkl`.
+---
+
+## Artefactos generados por el pipeline
+
+| Artefacto | Generado por | Consumido por | Retención |
+|-----------|-------------|---------------|-----------|
+| `coverage.xml` | `test` | SonarCloud (mismo job) | N/A |
+| `drift-report-{run_id}` (`drift_report.json`) | `drift-check` | Auditoría / trazabilidad | 90 días |
+| `model-artifacts-{run_id}` (`.pkl`, `.json`) | `retrain` | Auditoría / rollback manual | 90 días |
+| `monitoring/actual/feature_matrix.parquet` | `build-snapshot` | `drift-check` | S3 (sobrescrito semanalmente) |
+| `feature_matrix_reference.parquet` | `retrain` | `drift-check` (siguiente semana) | S3 (sobrescrito por retrain) |
+| `model.pkl`, `cluster_models.pkl`, `model_log.json` | `retrain` | ECS tasks al arrancar | S3 (sobrescrito por retrain) |
 
 ---
 
@@ -193,25 +474,21 @@ pytest --cov=src --cov-report=term-missing -v
 # Type checking
 mypy src/ --ignore-missing-imports --no-strict-optional
 
-# Validar feature matrix (si existe)
-python -m src.data.validate_data
+# Snapshot semanal (requiere USE_S3=true y AWS credentials)
+python -m src.pipeline --snapshot-only
+
+# Drift check (requiere los dos parquets en S3)
+USE_S3=true python -m src.model_monitoring
+
+# Pipeline completo de reentrenamiento
+USE_S3=true python -m src.pipeline --trials 50
 ```
-
----
-
-## Artefactos generados por el pipeline
-
-| Artefacto | Generado por | Consumido por | Retención |
-|---|---|---|---|
-| `coverage.xml` | job `test` | SonarCloud (mismo job) | N/A |
-| Reporte SonarCloud | job `test` (paso SonarCloud) | Dashboard en sonarcloud.io | N/A |
-| `reports/data/validation_report.json` | job `data-validation` | Revisión manual / auditoría | 7 días |
-| `drift_report.json` | job `drift_check` / job `retrain` | Trazabilidad de drift | 30 días |
-| `models/model.pkl`, `cluster_models.pkl`, `model_log.json` | job `retrain` | Descarga manual / deploy | 30 días |
 
 ---
 
 ## Extensiones futuras
 
-- **CD:** agregar job `deploy` que construya la imagen Docker de la API y la suba a un registry (ECR, GHCR) cuando se mergea a `main`
-- **Integration tests de API:** job separado que levante la API con `uvicorn` y valide los endpoints `/recommend` con datos reales
+- **Blue/Green deploy:** cuando se requiera zero-downtime estricto, migrar a blue/green con AWS CodeDeploy — ver tabla comparativa en sección CD
+- **Integration tests de API:** job post-deploy que valide endpoints adicionales más allá de `/health` y `/recommend`
+- **ECR lifecycle policy:** limpiar imágenes viejas automáticamente en ECR para controlar costos de almacenamiento
+- **Notificaciones Slack:** enviar alertas de drift, rollback y deploy fallido a un canal de equipo
