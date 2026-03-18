@@ -132,7 +132,7 @@ class TestLoadDataS3:
         parquet_bytes = _make_parquet_bytes()
         call_count = 0
 
-        def download_side_effect(bucket, key, fileobj):
+        def download_side_effect(bucket, key, fileobj, **kwargs):
             nonlocal call_count
             call_count += 1
             fileobj.write(parquet_bytes)
@@ -159,7 +159,7 @@ class TestLoadDataS3:
         parquet_bytes = _make_parquet_bytes()
         call_count = 0
 
-        def download_side_effect(bucket, key, fileobj):
+        def download_side_effect(bucket, key, fileobj, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
