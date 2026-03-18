@@ -132,7 +132,7 @@ class TestLoadDataS3:
         parquet_bytes = _make_parquet_bytes()
         call_count = 0
 
-        def download_side_effect(bucket, key, fileobj):
+        def download_side_effect(bucket, key, fileobj, **kwargs):
             nonlocal call_count
             call_count += 1
             fileobj.write(parquet_bytes)
@@ -148,7 +148,7 @@ class TestLoadDataS3:
         assert mock_s3.download_fileobj.call_count == 2
         first_call_args = mock_s3.download_fileobj.call_args_list[0][0]
         assert first_call_args[0] == S3_BUCKET
-        assert first_call_args[1] == "feature_matrix.parquet"
+        assert first_call_args[1] == "monitoring/actual/feature_matrix.parquet"
         assert df_curr is not None
         assert df_ref is not None
 
@@ -159,7 +159,7 @@ class TestLoadDataS3:
         parquet_bytes = _make_parquet_bytes()
         call_count = 0
 
-        def download_side_effect(bucket, key, fileobj):
+        def download_side_effect(bucket, key, fileobj, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
