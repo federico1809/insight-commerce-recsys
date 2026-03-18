@@ -1,10 +1,122 @@
-# insight-commerce-recsys
+# Insight Commerce · RecSys
 
-Sistema de recomendacion de proxima compra - Proyecto Final Data Science
+> **ML Consulting Services:** Solución integral de *Next-Basket Recommendation* con arquitectura MLOps desplegada en AWS.
+<p align="center">
+  <img src="reports/figures/logo.png" width="300" alt="Insight Commerce Logo">
+  <br>
+</p>
+
+
+<p align="center">
+  <img src="https://img.shields.io/badge/AWS-ECS%20Fargate-orange?style=flat-square&logo=amazonaws&logoColor=white" alt="AWS">
+  <img src="https://img.shields.io/badge/FastAPI-Serving-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Model-LightGBM+Optuna-FFB300?style=flat-square" alt="LightGBM">
+  <img src="https://img.shields.io/badge/MLFlow-Tracking-0194E2?style=flat-square&logo=mlflow&logoColor=white" alt="MLFlow">
+  <img src="https://img.shields.io/badge/GitHub%20Actions-MLOps-2088FF?style=flat-square&logo=githubactions&logoColor=white" alt="GitHub Actions">
+  <a href="https://streamlit.io/"><img src="https://img.shields.io/badge/UI-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit"></a>
+</p>
+
 
 ---
 
-## Instalacion
+## Executive Summary
+Insight Commerce presenta un **Recommender System (RecSys)** de nivel empresarial diseñado para retail digital. Esta solución no es solo un modelo de predicción; es un ecosistema de **MLOps productivo** que mitiga la degradación del modelo mediante monitoreo estadístico, automatiza el reentrenamiento con **Optuna** y garantiza despliegues continuos sobre **AWS**.
+
+--- 
+
+## Business Impact
+- **Relevancia Continua:** El sistema se adapta a los cambios de consumo mediante detección de Drift.
+- **Escalabilidad:** Arquitectura *serverless* en Fargate que reduce costos operativos.
+- **Decisiones Basadas en Datos:** [Informe de EDA](./docs/Informe_EDA.md) que identifica ciclos de recompra de 7 y 30 días
+
+--- 
+
+##  Arquitectura y Stack Tecnológico
+<div align="center">
+
+| Categoría | Herramientas / Tecnologías |
+| :--- | :--- |
+| **Lenguaje** | Python 3.10 |
+| **API** | FastAPI + Uvicorn |
+| **Training** | LightGBM + Optuna |
+| **Data** | pandas, NumPy, Parquet |
+| **Cloud** | AWS S3, AWS RDS, ECS Fargate, IAM |
+| **CI/CD** | GitHub Actions |
+| **Tracking** | MLflow |
+</div>
+
+Diseñamos infraestructuras desacopladas para garantizar que la inteligencia del negocio nunca se detenga:
+
+* **Serving:** API en **FastAPI** desplegada en **AWS ECS Fargate** carga modelos dinámicamente desde **Amazon S3** al iniciar el contenedor.
+* **Data Layer:** **AWS RDS (PostgreSQL)** para almacenamiento transaccional.(Ver [Diccionario de Datos](./docs/data_dictionary.md)).
+* **Artifacts:** **Amazon S3** para modelos y matrices de entrenamiento.
+* **Experiment Tracking:** Gestión de experimentos con **MLFlow** para total trazabilidad. ([Guía MLFlow](./docs/MLFLOW_SETUP.md)).
+* **Monitoreo:** Detección de *Drift* mediante **PSI** y **KS-test** ([Ver monitoreo](./src/model_monitoring.py)).
+
+
+
+
+---
+
+
+## Índice
+1. [Executive Summary](#executive-summary)
+2. [Business Impact](#bussines-impact)
+3. [Arquitectura y Stack Tecnológico](#arquitectura-y-stack-tecnológico)
+4. [Hallazgos del EDA](#hallazgos-críticos-del-eda)
+5. [Lógica de Inferencia](#lógica-de-inferencia-modo-dual)
+6. [Ciclo MLOps](#ciclo-mlops-y-gitflow)
+7. [Dashboards de Visualización (Streamlit)](#dashboards-de-visualización-streamlit)
+8. [Instalación](#instalación)
+9. [Variables de entorno](#variables-de-entorno)
+10. [Estructura del proyecto](#estructura-del-proyecto)
+11. [Pipeline de ejecución](#pipeline-de-ejecucion)
+12. [Base de datos](#base-de-datos)
+13. [Modelo](#modelo)
+14. [MLOps Lifecycle](#mlops-lifecycle)
+15. [Architecture Overview](#architecture-overview)
+16. [Key Features](#key-features)
+17. [Artifact Strategy](#artifact-strategy)
+18. [Cloud Deployment](#cloud-deployment)
+19. [Serving Layer](#serving-layer)
+20. [Git Workflow -- Ramas y Pull Requests](#git-workflow----ramas-y-pull-requests)
+
+---
+
+## Hallazgos Críticos del EDA
+Basado en nuestro [Informe de EDA](./docs/Informe_EDA.md):
+* **Frecuencia:** Picos de reposición detectados a los **7 y 30 días**.
+* **Filtros:** Solo entrenamos usuarios con $\geq$ 5 órdenes para asegurar señales estables.
+
+---
+
+## Lógica de Inferencia (Modo Dual)
+El sistema garantiza una disponibilidad del 100% mediante dos estrategias en `src/api/inference.py`:
+1.  **Modelo de Propensión:** Clasificador LightGBM para usuarios con historial (Umbral: $\geq$ 5 órdenes).
+2.  **Cold-Start Global:** Fallback automático de **Top 10 Popularidad** para usuarios nuevos, asegurando que el cliente siempre reciba una recomendación relevante.
+
+---
+
+## Ciclo MLOps y GitFlow
+
+### Monitoreo de Drift y Reentrenamiento
+El sistema evalúa semanalmente la estabilidad de las features (Detalles en [Guía CI/CD](./docs/CI_CD.md)):
+- **PSI < 0.10**: Estable.
+- **PSI > 0.25**: Alerta de Drift detectada -> Dispara pipeline de reentrenamiento y actualización en S3.
+
+### Workflow Profesional
+- **GitFlow:** Desarrollo basado en ramas `feature/*` e integración en `develop`.
+- **Calidad de Código:** PRs con revisión obligatoria y tests de cobertura.
+
+---
+
+## Dashboards de Visualización (Streamlit)
+Ofrecemos transparencia total para cada área de la empresa:
+* **`01_Top_10.py`**: Interfaz de cara al cliente final.
+* **`02_Impacto_de_Negocio.py`**: Dashboard de KPIs para el Product Owner.
+* **`03_Metricas_del_Modelo.py`**: Diagnóstico técnico para el equipo de Data Science.
+
+## Instalación
 
 ### 1. Clonar el repositorio
 
@@ -309,7 +421,7 @@ El proyecto usa dos bases de datos:
 
 ## Modelo
 
-### Feature Schema v4 -- 26 columnas + label
+### Feature Schema -- 26 columnas + label
 
 | Grupo           | Features                                                                                                                                                                                                                                                                | Count |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
@@ -333,6 +445,181 @@ Split de evaluacion: **70/15/15 por usuarios** -- cada usuario aparece en un uni
 Modelo en produccion: LightGBM optimizado con Optuna (50 trials · `scale_pos_weight=8.88`).
 
 Top 5 features mas importantes: `up_reorder_rate`, `up_days_since_last`, `product_reorder_rate`, `user_reorder_ratio`, `up_delta_days`.
+
+---
+
+## MLOps Lifecycle
+
+### Flujo semanal automatizado
+
+Cada domingo a las **23:00 UTC**, GitHub Actions ejecuta un ciclo MLOps con cuatro etapas desacopladas:
+
+1. **Generación de snapshot**
+   Se extraen datos desde AWS RDS PostgreSQL, se construye la feature matrix en memoria y se sube a S3 como snapshot actual.
+
+2. **Detección de drift**
+   El job de monitoreo compara el snapshot actual contra la referencia del último entrenamiento exitoso usando **PSI** y **KS-test** por feature.
+
+3. **Reentrenamiento condicionado**
+   Si hay drift detectado, o si se fuerza manualmente, se ejecuta el pipeline completo de entrenamiento con **Optuna (50 trials)**.
+
+4. **Despliegue en AWS ECS Fargate**
+   Si el retrain finaliza correctamente, el workflow dispara un **rolling update** del servicio ECS para que los nuevos tasks carguen el modelo vigente desde S3.
+
+### Regla de activación de drift
+
+| Métrica | Umbral | Interpretación operativa |
+|---|---:|---|
+| `PSI` | `> 0.25` | Cambio significativo en la distribución |
+| `KS` | `> 0.30` | Diferencia estadística relevante entre baseline y snapshot actual |
+
+La decisión de reentrenar se toma cuando se cumple al menos una de estas condiciones:
+
+```text
+drift_detected = (PSI > 0.25) OR (KS > 0.30)
+```
+
+## Architecture Overview
+
+### Infrastructure
+
+| Componente | Implementación | Rol en la solución |
+|---|---|---|
+| Orquestación MLOps | GitHub Actions | Ejecuta snapshot, drift-check, retrain y deploy |
+| Data source | AWS RDS PostgreSQL | Fuente de datos transaccionales para features |
+| Artifact store | Amazon S3 | Versionado y distribución de artefactos del modelo |
+| Model serving | FastAPI | Expone endpoints de inferencia y health check |
+| Compute de serving | AWS ECS Fargate | Corre contenedores sin administrar servidores |
+| Experiment tracking | MLflow | Registra parámetros, métricas y artefactos |
+| Hyperparameter tuning | Optuna | Optimiza el entrenamiento en cada retrain |
+
+### Tech Stack
+
+| Capa | Stack |
+|---|---|
+| Lenguaje | Python 3.10 |
+| API | FastAPI + Uvicorn |
+| Training | LightGBM + Optuna |
+| Data | pandas, NumPy, Parquet |
+| Cloud | AWS S3, AWS RDS, ECS Fargate, IAM |
+| CI/CD | GitHub Actions |
+| Tracking | MLflow |
+
+## Key Features
+
+### 1. Drift monitoring basado en evidencia estadística
+
+El monitoreo no depende de intuiciones ni de checks superficiales. El pipeline calcula **PSI** y **KS** sobre features numéricas críticas como:
+
+- `user_total_orders`
+- `user_avg_basket_size`
+- `user_reorder_ratio`
+- `product_total_purchases`
+- `product_reorder_rate`
+- `up_times_purchased`
+- `up_reorder_rate`
+- `up_days_since_last`
+
+Además, genera un `drift_report.json` con:
+
+- `timestamp`
+- `triggered_by`
+- `retrain_run_id`
+- `psi`, `ks`
+- `drift_detected`
+- breakdown por feature (`psi_by_feature`, `ks_by_feature`)
+
+### 2. Robustez ante Cold Start
+
+Uno de los puntos más sólidos del diseño es el manejo explícito del **primer entrenamiento**:
+
+- Si aún no existe `feature_matrix_reference.parquet`, el monitoreo **no falla de forma ciega**; se omite con logging claro.
+- En el workflow, antes del retrain, se verifica si existe `s3://insight-commerce-artifacts/model_log.json`.
+- Si no existe baseline, el pipeline considera el caso como **first training**, ejecuta el entrenamiento y establece la nueva referencia para futuras comparaciones.
+- Tras el primer entrenamiento exitoso, GitHub Actions abre una notificación operativa indicando que el baseline quedó inicializado.
+
+Esto evita uno de los errores más comunes en proyectos MLOps junior: asumir que siempre existe un modelo previo o una distribución de referencia válida.
+
+### 3. Despliegue desacoplado del entrenamiento
+
+El deploy no reconstruye la imagen en cada nuevo modelo. En cambio:
+
+- los artefactos se actualizan en **S3**,
+- ECS ejecuta `force-new-deployment`,
+- los nuevos tasks levantan la misma imagen de API,
+- la API carga el nuevo modelo desde S3 durante `startup()`.
+
+Este patrón reduce tiempo de despliegue, costo de red y fricción operativa.
+
+### 4. Inyección segura de secretos
+
+El workflow consume secretos desde **GitHub Secrets** para:
+
+- credenciales AWS (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`)
+- conexión a RDS (`AWS_HOST`, `AWS_DATABASE`, `AWS_USER`, `AWS_PASSWORD`, `AWS_PORT`, `AWS_SSLMODE`)
+- tracking de experimentos (`MLFLOW_TRACKING_URI`)
+
+La operación del pipeline queda desacoplada del código fuente y alineada con buenas prácticas de seguridad.
+
+## Artifact Strategy
+
+### S3 como capa de versionado operativo
+
+Amazon S3 actúa como repositorio central de artefactos y contratos del modelo.
+
+| Artefacto | Ubicación lógica | Propósito |
+|---|---|---|
+| Snapshot actual | `monitoring/actual/feature_matrix.parquet` | Distribución semanal para drift detection |
+| Baseline de entrenamiento | `feature_matrix_reference.parquet` | Referencia estadística post-retrain |
+| Modelo principal | `model.pkl` | Modelo de inferencia en producción |
+| Modelos auxiliares | `cluster_models.pkl` | Artefactos de clustering / transformación |
+| Contrato del modelo | `model_log.json` | Metadata, features y versionado lógico |
+
+`model_log.json` es especialmente importante porque funciona como **contrato de artefactos**, facilitando trazabilidad y validación de compatibilidad entre entrenamiento e inferencia.
+
+## Cloud Deployment
+
+### AWS ECS Fargate
+
+La capa de serving corre sobre **AWS ECS Fargate** con una estrategia de **rolling update**.
+
+| Recurso | Valor |
+|---|---|
+| Cluster | `insight-commerce-cluster` |
+| Servicio | `insight-api-service` |
+| Task Definition | `insight-commerce-task` |
+| Contenedor | `api-container` |
+| Puerto de serving | `8000` |
+
+### IAM y acceso a artefactos
+
+El task role **`ecsTaskRole-InsightCommerce`** dispone de permisos de lectura sobre S3 para que el contenedor recupere artefactos al iniciar, sin embutir credenciales estáticas en la imagen.
+
+Esto habilita un patrón limpio:
+
+```text
+Nuevo task ECS inicia
+-> FastAPI arranca
+-> RecommendationService carga artefactos desde S3
+-> /health confirma modelo activo y número de features
+```
+
+## Serving Layer
+
+La API FastAPI expone una capa de inferencia productiva con foco operacional.
+
+| Endpoint | Método | Propósito |
+|---|---|---|
+| `/health` | `GET` | Verifica estado del servicio y artefactos cargados |
+| `/recommend/{user_id}` | `POST` | Devuelve top-N recomendaciones para un usuario |
+| `/recommend/batch` | `POST` | Ejecuta inferencia por lote |
+
+El endpoint `/health` reporta:
+
+- estado del servicio
+- modelo cargado
+- número de features
+- artefactos activos (`model.pkl`, `cluster_models.pkl`, `model_log.json`)
 
 ---
 
