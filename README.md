@@ -57,57 +57,42 @@ El proyecto utiliza un archivo `.env` en la raiz del proyecto para gestionar la 
 ### Ejemplo de `.env`
 
 ```env
-# Base de datos local (PostgreSQL)
-LOCAL_HOST=localhost
-LOCAL_DATABASE=InstaCart_DB
-LOCAL_USER=postgres
-LOCAL_PASSWORD=tu_password
-LOCAL_PORT=5432
+# Base de datos — AWS RDS PostgreSQL
+DB_HOST=
+DB_PORT=5432
+DB_NAME=
+DB_USER=
+DB_PASSWORD=
+DB_SSLMODE=require
 
-# AWS RDS PostgreSQL (nube)
-AWS_HOST=
-AWS_DATABASE=
-AWS_USER=
-AWS_PASSWORD=
-AWS_PORT=
-AWS_SSLMODE=
+# Artefactos del modelo — S3
+S3_BUCKET=insight-commerce-artifacts
+S3_PREFIX=models
+USE_S3=false
+
+# Streamlit
+API_URL=http://localhost:8000
 
 # Configuracion del proyecto
-DATA_PATH=data/raw
 RANDOM_SEED=42
-N_USERS=100000
 
-# API de recomendaciones (FastAPI)
-API_MODEL_PATH=models/model.pkl
-API_CLUSTER_MODEL_PATH=models/cluster_models.pkl
-API_MODEL_LOG_PATH=models/model_log.json
-API_HOST=0.0.0.0
-API_PORT=8000
 ```
 
 ### Descripcion de variables
 
-| Variable                 | Descripcion                                      | Valor por defecto           |
-| ------------------------ | ------------------------------------------------ | --------------------------- |
-| `LOCAL_HOST`             | Direccion del servidor PostgreSQL local          | `localhost`                 |
-| `LOCAL_DATABASE`         | Nombre de la base de datos local                 | `InstaCart_DB`              |
-| `LOCAL_USER`             | Usuario PostgreSQL local                         | `postgres`                  |
-| `LOCAL_PASSWORD`         | Contrasena PostgreSQL local                      | -                           |
-| `LOCAL_PORT`             | Puerto PostgreSQL local                          | `5432`                      |
-| `AWS_HOST`               | Host de AWS RDS PostgreSQL                       | -                           |
-| `AWS_DATABASE`           | Nombre de la base de datos en AWS RDS            | -                           |
-| `AWS_USER`               | Usuario AWS RDS                                  | -                           |
-| `AWS_PASSWORD`           | Contrasena AWS RDS                               | -                           |
-| `AWS_PORT`               | Puerto AWS RDS                                   | `5432`                      |
-| `AWS_SSLMODE`            | Modo SSL AWS RDS (`disable/prefer` si host local)| `require`                   |
-| `DATA_PATH`              | Ruta a los CSVs originales                       | `data/raw`                  |
-| `RANDOM_SEED`            | Semilla aleatoria global                         | `42`                        |
-| `N_USERS`                | Usuarios a considerar en EDA local               | `100000`                    |
-| `API_MODEL_PATH`         | Ruta al artefacto del modelo de inferencia       | `models/model.pkl`          |
-| `API_CLUSTER_MODEL_PATH` | Ruta al artefacto de clusters (KMeans + scalers) | `models/cluster_models.pkl` |
-| `API_MODEL_LOG_PATH`     | Ruta al contrato de features (`model_log.json`)  | `models/model_log.json`     |
-| `API_HOST`               | Host para levantar FastAPI                       | `0.0.0.0`                   |
-| `API_PORT`               | Puerto para levantar FastAPI                     | `8000`                      |
+| Variable | Descripcion | Valor por defecto |
+|---|---|---|
+| `DB_HOST` | Host de AWS RDS PostgreSQL | — |
+| `DB_PORT` | Puerto PostgreSQL | `5432` |
+| `DB_NAME` | Nombre de la base de datos | — |
+| `DB_USER` | Usuario PostgreSQL | — |
+| `DB_PASSWORD` | Contraseña PostgreSQL | — |
+| `DB_SSLMODE` | Modo SSL | `require` |
+| `S3_BUCKET` | Bucket S3 para artefactos | `insight-commerce-artifacts` |
+| `S3_PREFIX` | Prefijo dentro del bucket | `models` |
+| `USE_S3` | Cargar artefactos desde S3 | `false` (local) / `true` (Fargate) |
+| `API_URL` | URL de la API para Streamlit | `http://localhost:8000` |
+| `RANDOM_SEED` | Semilla aleatoria global | `42` |
 
 > **Nunca compartas ni subas tu archivo `.env` a control de versiones.** Asegurate de que `.env` este incluido en tu `.gitignore`.
 
@@ -126,7 +111,12 @@ insight-commerce-recsys/
 +-- .vscode/
 |   +-- settings.json
 |
-+-- app/                            # Streamlit (pendiente)
++-- app/
+|   +-- streamlit_app.py            # Entry point Streamlit
+|   +-- pages/
+|       +-- 01_Top_10.py            # Recomendaciones personalizadas
+|       +-- 02_Impacto_de_Negocio.py # Dashboard para el PO
+|       +-- 03_Metricas_del_Modelo.py # Métricas técnicas del modelo
 |
 +-- data/
 |   +-- samples/                    # Muestras pequenas para desarrollo
@@ -271,10 +261,12 @@ curl -X POST "http://localhost:8000/recommend/batch" \
 #### Comportamiento por cantidad de ordenes
 
 | Ordenes prior del usuario | Comportamiento |
-| ------------------------- | -------------- |
-| `0` | `404` — usuario sin historial |
-| `1 – 4` | `200` — **cold-start**: top-10 productos más comprados por el usuario (ranking por frecuencia, sin ML) |
-| `>= 5` | `200` — recomendaciones generadas por el modelo LightGBM |
+|---|---|
+| Usuario no existe en BD | `200` — **cold-start global**: top-10 productos más populares |
+| `0` (existe en BD sin historial) | `404` — usuario sin historial prior |
+| `1 – 4` | `200` — **cold-start personal**: top-10 productos más comprados por el usuario |
+| `>= 5` | `200` — recomendaciones del modelo LightGBM + flag `cold_start: false` |
+
 
 El campo `probability` en cold-start refleja la frecuencia de compra normalizada por órdenes (cuántas de sus órdenes incluyeron ese producto), no una probabilidad del modelo.
 
@@ -286,9 +278,7 @@ El campo `probability` en cold-start refleja la frecuencia de compra normalizada
 | `404` | `user_id` no tiene ningún historial en la base de datos (0 órdenes prior) |
 | `400` | Las features calculadas no coinciden con el contrato del modelo |
 | `503` | No se pudo conectar a PostgreSQL (verificar `.env` y estado de Neon) |
-| `500` | Error interno inesperado (ver `src/api/reports/logs/api.log`) |
-
-Logs API: `src/api/reports/logs/api.log` (UTF-8). La carpeta se crea automaticamente al iniciar.
+| `500` | Error interno inesperado (ver CloudWatch Logs en AWS) |
 
 ---
 

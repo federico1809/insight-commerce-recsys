@@ -1,27 +1,11 @@
-"""
-main.py — Insight Commerce · Recsys API
-Versión cloud-native para AWS Fargate + CloudWatch Logs.
-
-Cambios en esta versión (production-ready):
-  - /health fortalecido: valida que service.engine puede ejecutar SELECT 1 en RDS.
-    Si la DB está caída, el health check retorna 503 — el ALB detiene el tráfico
-    hacia esa tarea y ECS la reinicia automáticamente.
-  - Logging exclusivo a stdout (StreamHandler) — sin FileHandler ni makedirs.
-    CloudWatch captura stdout/stderr automáticamente vía el awslogs log driver.
-  - Latencia logueada en /recommend/{user_id} con time.perf_counter().
-  - Sin on_event("startup") deprecado — usa lifespan context manager (FastAPI 0.93+).
-"""
-
 import logging
 import sys
 import time
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
-
 from src.api.inference import (
     DatabaseConnectionError,
     FeatureContractError,
@@ -37,26 +21,11 @@ from src.api.schemas import (
     RecommendResponse,
 )
 
-
-# ---------------------------------------------------------------------------
-# Logging → stdout (CloudWatch compatible)
-#
-# StreamHandler(sys.stdout) es el único handler registrado.
-# CloudWatch Logs captura stdout del contenedor automáticamente
-# gracias al awslogs log driver configurado en la Task Definition.
-# Sin FileHandler, sin os.makedirs, sin rutas locales.
-# ---------------------------------------------------------------------------
-
 def _build_logger() -> logging.Logger:
-    """Configura el logger de la API con salida exclusiva a stdout.
-
-    El bloque 'if not logger.handlers' evita handlers duplicados si el módulo
-    se importa múltiples veces (tests, hot-reload de uvicorn en desarrollo).
-    """
+    """Configura el logger de la API con salida exclusiva a stdout."""
     logger = logging.getLogger("api")
     logger.setLevel(logging.INFO)
-    logger.propagate = False  # Evita duplicados hacia el logger raíz de Python
-
+    logger.propagate = False
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.INFO)
@@ -67,21 +36,10 @@ def _build_logger() -> logging.Logger:
             )
         )
         logger.addHandler(handler)
-
     return logger
 
-
-# ---------------------------------------------------------------------------
-# Instancias globales
-# ---------------------------------------------------------------------------
-
 logger  = _build_logger()
-service = RecommendationService()  # Los artefactos se cargan en el lifespan
-
-
-# ---------------------------------------------------------------------------
-# Lifespan (reemplaza el @app.on_event("startup") deprecado desde FastAPI 0.93)
-# ---------------------------------------------------------------------------
+service = RecommendationService()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,11 +51,9 @@ async def lifespan(app: FastAPI):
         service.n_features,
     )
     yield
-    # Teardown: el pool de SQLAlchemy se cierra automáticamente al destruir el engine.
     logger.info("shutdown | cerrando pool de conexiones RDS")
     if service.engine:
         service.engine.dispose()
-
 
 app = FastAPI(
     title="Insight Commerce Recsys API",
@@ -106,65 +62,31 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-# ---------------------------------------------------------------------------
-# Manejadores de errores globales
-# ---------------------------------------------------------------------------
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Captura cualquier excepción no controlada y devuelve HTTP 500.
-
-    El stack trace completo queda en CloudWatch vía stdout.
-    Al cliente solo se expone un mensaje genérico (sin detalles internos).
-    """
+    """Captura cualquier excepción no controlada y devuelve HTTP 500."""
     logger.exception("error interno | path=%s", request.url.path)
     return JSONResponse(
         status_code=500,
         content={"detail": "Error interno del servidor."},
     )
 
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Health check fortalecido: valida conectividad real a RDS con SELECT 1.
-
-    Dos niveles de validación:
-      1. Los artefactos están cargados en memoria (model_name != "LightGBM" vacío).
-      2. El engine puede ejecutar SELECT 1 en RDS PostgreSQL.
-
-    Si el engine no puede conectarse:
-      - Se loguea el error en CloudWatch.
-      - Se retorna HTTP 503 con detalle del problema.
-      - El Target Group del ALB marca la tarea como unhealthy → ECS la reemplaza.
-
-    El ALB debe configurarse con:
-      HealthCheckPath: /health
-      HealthyHttpCodes: 200
-      UnhealthyThresholdCount: 2
-    """
+    """Health check fortalecido: valida conectividad real a RDS con SELECT 1."""
     logger.info("GET /health")
-
-    # Validación 1: artefactos cargados
     if service._artifacts is None:
         logger.error("health FAIL | artefactos no cargados")
         raise HTTPException(
             status_code=503,
             detail="Los artefactos del modelo no están disponibles.",
         )
-
-    # Validación 2: conectividad a RDS con SELECT 1
     if service.engine is None:
         logger.error("health FAIL | engine RDS no inicializado")
         raise HTTPException(
             status_code=503,
             detail="El engine de base de datos no está inicializado.",
         )
-
     try:
         with service.engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -179,7 +101,6 @@ def health() -> HealthResponse:
                 "tráfico desde el Security Group de la tarea Fargate."
             ),
         ) from err
-
     logger.info("health OK | model=%s | rds=%s", service.model_name, service._db_host)
     return HealthResponse(
         status="ok",
@@ -188,33 +109,20 @@ def health() -> HealthResponse:
         artefactos=["model.pkl", "cluster_models.pkl", "model_log.json"],
     )
 
-
 # IMPORTANTE: /recommend/batch debe definirse ANTES de /recommend/{user_id}.
-# FastAPI evalúa rutas en orden de definición. Si /{user_id} fuera primero,
-# la cadena "batch" se interpretaría como un user_id entero y daría HTTP 422.
 @app.post("/recommend/batch", response_model=BatchResponse)
 def recommend_batch(payload: BatchRequest) -> BatchResponse:
-    """Genera recomendaciones para hasta 100 usuarios en una sola llamada.
-
-    Diseño fault-tolerant por usuario:
-      - UserNotFoundError de un usuario individual se registra como campo 'error'
-        en BatchItemResult sin interrumpir el procesamiento del resto.
-      - FeatureContractError y DatabaseConnectionError son problemas sistémicos
-        que cortan toda la solicitud con HTTP 400 / 503.
-
-    El cliente identifica fallos individuales inspeccionando el campo 'error'
-    de cada BatchItemResult (es None cuando la inferencia fue exitosa).
-    """
+    """Genera recomendaciones para hasta 100 usuarios en una sola llamada."""
     logger.info("POST /recommend/batch | n_users=%d", len(payload.user_ids))
-
     results = []
     for user_id in payload.user_ids:
         try:
-            recs = service.recommend_user(user_id=user_id, top_k=10)
+            recs, cold_start = service.recommend_user(user_id=user_id, top_k=10)
             results.append(
                 BatchItemResult(
                     user_id=user_id,
                     recommendations=[RecommendationItem(**r) for r in recs],
+                    cold_start=cold_start,
                 )
             )
         except UserNotFoundError as err:
@@ -224,26 +132,15 @@ def recommend_batch(payload: BatchRequest) -> BatchResponse:
             raise HTTPException(status_code=400, detail=str(err)) from err
         except DatabaseConnectionError as err:
             raise HTTPException(status_code=503, detail=str(err)) from err
-
     return BatchResponse(results=results)
-
 
 @app.post("/recommend/{user_id}", response_model=RecommendResponse)
 def recommend_user(user_id: int) -> RecommendResponse:
-    """Genera las top-10 recomendaciones de next-basket para un único usuario.
-
-    Códigos de respuesta:
-      200 — Recomendaciones generadas correctamente.
-      404 — El usuario no tiene historial prior en RDS.
-      400 — El contrato de features del modelo fue violado.
-      503 — No se pudo conectar a PostgreSQL en RDS.
-      500 — Error interno no clasificado (ver CloudWatch Logs).
-    """
+    """Genera las top-10 recomendaciones de next-basket para un único usuario."""
     t0 = time.perf_counter()
     logger.info("POST /recommend/%d", user_id)
-
     try:
-        recs = service.recommend_user(user_id=user_id, top_k=10)
+        recs, cold_start = service.recommend_user(user_id=user_id, top_k=10)
         recommendations = [RecommendationItem(**r) for r in recs]
     except UserNotFoundError as err:
         raise HTTPException(status_code=404, detail=str(err)) from err
@@ -251,10 +148,13 @@ def recommend_user(user_id: int) -> RecommendResponse:
         raise HTTPException(status_code=400, detail=str(err)) from err
     except DatabaseConnectionError as err:
         raise HTTPException(status_code=503, detail=str(err)) from err
-
     elapsed_ms = (time.perf_counter() - t0) * 1000
     logger.info(
         "recommend OK | user_id=%d | n_recs=%d | elapsed_ms=%.1f",
         user_id, len(recommendations), elapsed_ms,
     )
-    return RecommendResponse(user_id=user_id, recommendations=recommendations)
+    return RecommendResponse(
+        user_id=user_id,
+        recommendations=recommendations,
+        cold_start=cold_start,
+    )
