@@ -124,6 +124,33 @@ Ofrecemos transparencia total para cada área de la empresa:
 * **`02_Impacto_de_Negocio.py`**: Dashboard de KPIs para el Product Owner.
 * **`03_Metricas_del_Modelo.py`**: Diagnóstico técnico para el equipo de Data Science.
 
+## Dashboards de Visualización (Streamlit)
+
+Ofrecemos transparencia total para cada área de la empresa:
+
+* **`01_Top_10.py`**: Interfaz de cara al cliente final.
+* **`02_Impacto_de_Negocio.py`**: Dashboard de KPIs para el Product Owner.
+* **`03_Metricas_del_Modelo.py`**: Diagnóstico técnico para el equipo de Data Science.
+
+### Cómo levantar la app
+
+**Requisitos previos:**
+- Archivo `.env` configurado con `API_URL` apuntando a la API activa
+- `models/model_log.json` presente en la carpeta `models/`
+
+**Verificar que la API está activa:**
+```
+http://18.217.26.71:8000/docs
+```
+
+**Levantar Streamlit:**
+```bash
+streamlit run app/streamlit_app.py
+```
+
+Las páginas de **Impacto de Negocio** y **Métricas del Modelo** funcionan sin conexión a la API — solo requieren `model_log.json`.
+
+
 ## Instalación
 
 ### 1. Clonar el repositorio
@@ -487,12 +514,14 @@ El proyecto usa dos bases de datos:
 
 Split de evaluacion: **70/15/15 por usuarios** -- cada usuario aparece en un unico conjunto.
 
-| Modelo               | Precision  | Recall     | F1         | AUC-ROC    |
-| -------------------- | ---------- | ---------- | ---------- | ---------- |
-| Baseline popularidad | 0.2370     | 0.1159     | 0.1557     | -          |
-| LightGBM baseline    | 0.0000     | 0.0000     | 0.0000     | 0.8257     |
-| LightGBM optimizado  | **0.4347** | 0.4106     | **0.4223** | 0.8197     |
-| CatBoost             | 0.2511     | **0.7386** | 0.3748     | **0.8253** |
+| Modelo               | Precision  | Recall     | F1         | AUC-ROC    | NDCG@10    |
+| -------------------- | ---------- | ---------- | ---------- | ---------- | ---------- |
+| Baseline popularidad | 0.2370     | 0.1159     | 0.1557     | -          | -          |
+| LightGBM baseline    | 0.0000     | 0.0000     | 0.0000     | 0.8257     | -          |
+| LightGBM optimizado  | **0.4347** | 0.4106     | **0.4223** | 0.8197     | **0.5108** |
+| CatBoost             | 0.2511     | **0.7386** | 0.3748     | **0.8253** | -          |
+
+**Uplift vs baseline de popularidad global:** +296% — el modelo personalizado encuentra casi 3 veces más productos relevantes por usuario que recomendar los más vendidos globalmente (+2.1 productos/usuario en promedio).
 
 Modelo en produccion: LightGBM optimizado con Optuna (50 trials · `scale_pos_weight=8.88`).
 
