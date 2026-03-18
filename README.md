@@ -21,7 +21,6 @@
   <a href="https://streamlit.io/"><img src="https://img.shields.io/badge/UI-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit"></a>
 </p>
 
-
 ---
 
 ## Executive Summary
@@ -111,6 +110,9 @@ El sistema garantiza una disponibilidad del 100% mediante dos estrategias en `sr
 El sistema evalúa semanalmente la estabilidad de las features (Detalles en [Guía CI/CD](./docs/CI_CD.md)):
 - **PSI < 0.10**: Estable.
 - **PSI > 0.25**: Alerta de Drift detectada -> Dispara pipeline de reentrenamiento y actualización en S3.
+
+### Deploy Continuo de Código
+Cada merge a `main` dispara automáticamente el pipeline de CD (`cd.yml`): ECS rolling update → health check → smoke test. Si el health check falla, el rollback a la versión anterior es automático. El modelo en S3 no se toca — el reentrenamiento es exclusivo del pipeline MLOps.
 
 ### Workflow Profesional
 - **GitFlow:** Desarrollo basado en ramas `feature/*` e integración en `develop`.
@@ -786,6 +788,8 @@ git merge --no-ff develop
 git tag -a v1.x.x -m "Release v1.x.x"
 git push origin main --tags
 ```
+
+> **El merge a `main` dispara automáticamente el pipeline de CD** (`cd.yml`): una vez que `ci.yml` pasa, ECS hace rolling update con el nuevo código. Si el health check falla, el rollback es automático y prod queda intacto.
 
 ### Reglas de Pull Requests
 
