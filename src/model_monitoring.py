@@ -51,6 +51,7 @@ USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
 # - S3_REFERENCE_KEY: baseline fijo guardado tras el último reentrenamiento
 S3_CURRENT_KEY = os.getenv("S3_CURRENT_KEY", "monitoring/actual/feature_matrix.parquet")
 S3_REFERENCE_KEY = os.getenv("S3_REFERENCE_KEY", "feature_matrix_reference.parquet")
+AWS_ACCOUNT_ID = os.getenv("AWS_ACCOUNT_ID", "")
 
 # Features numéricas a monitorear — se excluyen NaN intencionales y columnas categóricas
 MONITORED_FEATURES = [
@@ -133,7 +134,7 @@ def _load_data(
 
         try:
             buf = io.BytesIO()
-            s3.download_fileobj(S3_BUCKET, current_key, buf)
+            s3.download_fileobj(S3_BUCKET, current_key, buf, ExtraArgs={"ExpectedBucketOwner": AWS_ACCOUNT_ID})
             buf.seek(0)
             df_curr = pd.read_parquet(buf)
         except Exception as e:
@@ -146,7 +147,7 @@ def _load_data(
 
         try:
             buf = io.BytesIO()
-            s3.download_fileobj(S3_BUCKET, ref_key, buf)
+            s3.download_fileobj(S3_BUCKET, ref_key, buf, ExtraArgs={"ExpectedBucketOwner": AWS_ACCOUNT_ID})
             buf.seek(0)
             df_ref = pd.read_parquet(buf)
         except Exception as e:

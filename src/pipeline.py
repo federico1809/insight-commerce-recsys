@@ -175,6 +175,7 @@ def run_pipeline(
                 Bucket=S3_BUCKET,
                 Key="feature_matrix_reference.parquet",
                 Body=_buf.read(),
+                ExpectedBucketOwner=os.getenv("AWS_ACCOUNT_ID", ""),
             )
             logger.info(f"feature_matrix_reference.parquet subido a s3://{S3_BUCKET}/")
 
