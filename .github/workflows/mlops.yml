@@ -2,7 +2,6 @@ name: MLOps — Drift → Retrain → Deploy
 
 on:
   schedule:
-    # Domingos 23:00 UTC
     - cron: "0 23 * * 0"
   workflow_dispatch:
     inputs:
@@ -22,8 +21,6 @@ env:
 
 jobs:
   # ── JOB 1: Snapshot semanal ──────────────────────────────────────────────────
-  # Carga datos desde RDS → feature engineering → sube parquet a S3
-  # s3://insight-commerce-artifacts/monitoring/actual/feature_matrix.parquet
   build-snapshot:
     name: Build weekly snapshot
     runs-on: ubuntu-latest
@@ -42,14 +39,17 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
       - name: Build and upload snapshot to S3
         env:
           USE_S3: "true"
           S3_BUCKET: ${{ env.S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
-          # RDS
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_DATABASE: ${{ secrets.AWS_DATABASE }}
           AWS_USER: ${{ secrets.AWS_USER }}
@@ -59,12 +59,12 @@ jobs:
         run: python -m src.pipeline --snapshot-only
 
   # ── JOB 2: Drift check ───────────────────────────────────────────────────────
-  # Compara snapshot actual vs referencia (post-retrain) usando PSI y KS.
-  # No accede a RDS — solo descarga dos parquets desde S3 y calcula métricas.
   drift-check:
     name: Drift check (PSI / KS)
     runs-on: ubuntu-latest
     needs: build-snapshot
+    permissions:
+      issues: write
     if: ${{ always() && (needs.build-snapshot.result == 'success' || github.event.inputs.skip_snapshot == 'true') }}
     outputs:
       drift_detected: ${{ steps.parse.outputs.drift_detected }}
@@ -82,17 +82,21 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
       - name: Run drift monitoring
         env:
           USE_S3: "true"
           S3_BUCKET: ${{ env.S3_BUCKET }}
           S3_CURRENT_KEY: "monitoring/actual/feature_matrix.parquet"
           S3_REFERENCE_KEY: "feature_matrix_reference.parquet"
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
-          DRIFT_TRIGGERED_BY: "scheduled"
-          GITHUB_RUN_ID: ${{ github.run_id }}
+          # dinámico: distingue ejecución programada de manual en los reportes
+          DRIFT_TRIGGERED_BY: ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
         run: |
           mkdir -p reports
           python -m src.model_monitoring
@@ -151,15 +155,13 @@ jobs:
             });
 
   # ── JOB 3: Retrain ───────────────────────────────────────────────────────────
-  # Corre solo si hay drift (o force_retrain=true).
-  # Incluye protección de rollback: si F1_nuevo < F1_anterior * 0.95 → falla el job.
   retrain:
     name: Retrain model (Optuna 50 trials)
     runs-on: ubuntu-latest
     needs: drift-check
-    if: |
-      needs.drift-check.result == 'success' &&
-      (needs.drift-check.outputs.drift_detected == 'true' || github.event.inputs.force_retrain == 'true')
+    permissions:
+      issues: write
+    if: ${{ needs.drift-check.result == 'success' && (needs.drift-check.outputs.drift_detected == 'true' || github.event.inputs.force_retrain == 'true') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -174,12 +176,15 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
       - name: Check if first training (no baseline in S3)
         id: first_train
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
         run: |
           if aws s3 ls "s3://${{ env.S3_BUCKET }}/models/model_log.json" > /dev/null 2>&1; then
             echo "is_first=false" >> "$GITHUB_OUTPUT"
@@ -187,21 +192,26 @@ jobs:
             echo "is_first=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Validate MLFLOW_TRACKING_URI
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          if [ -z "$MLFLOW_TRACKING_URI" ]; then
+            echo "⚠️ MLFLOW_TRACKING_URI no configurado — tracking deshabilitado, usando archivo local"
+          else
+            echo "✅ MLFLOW_TRACKING_URI configurado"
+          fi
+
       - name: Run full pipeline (load → features → retrain)
         env:
           USE_S3: "true"
           S3_BUCKET: ${{ env.S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
-          # RDS
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_DATABASE: ${{ secrets.AWS_DATABASE }}
           AWS_USER: ${{ secrets.AWS_USER }}
           AWS_PASSWORD: ${{ secrets.AWS_PASSWORD }}
           AWS_PORT: ${{ vars.AWS_PORT }}
           AWS_SSLMODE: ${{ vars.AWS_SSLMODE }}
-          # MLflow
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: python -m src.pipeline --trials 50
 
@@ -257,12 +267,13 @@ jobs:
             });
 
   # ── JOB 4: Deploy ────────────────────────────────────────────────────────────
-  # Rolling update: reinicia los contenedores ECS para que carguen el nuevo modelo desde S3.
-  # No reconstruye la imagen Docker — el modelo se carga desde S3 al arrancar el contenedor.
   deploy:
     name: Deploy — ECS rolling update
     runs-on: ubuntu-latest
     needs: retrain
+    timeout-minutes: 30
+    permissions:
+      issues: write
     if: ${{ needs.retrain.result == 'success' }}
 
     steps:
@@ -326,12 +337,12 @@ jobs:
           PREV_TASK=$(aws ecs describe-services \
             --cluster insight-commerce-cluster \
             --services insight-api-service \
-            --query 'services[0].deployments[-1].taskDefinition' \
+            --query 'services[0].deployments[1].taskDefinition' \
             --output text)
           aws ecs update-service \
             --cluster insight-commerce-cluster \
             --service insight-api-service \
-            --task-definition $PREV_TASK
+            --task-definition "$PREV_TASK"
           echo "✅ Rollback completado — modelo anterior restaurado"
 
       - name: Notify deploy failure

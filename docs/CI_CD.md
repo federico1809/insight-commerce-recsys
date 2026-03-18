@@ -358,28 +358,42 @@ Configurar en **Settings → Secrets and variables → Actions → New repositor
 
 ### `cd.yml`
 
+**Secrets**
+
 | Secret | Descripción | Estado |
 |--------|-------------|--------|
 | `AWS_ACCESS_KEY_ID` | Credencial IAM (ECS) | Configurado |
 | `AWS_SECRET_ACCESS_KEY` | Credencial IAM | Configurado |
-| `AWS_REGION` | Región AWS (`us-east-2`) | Configurado |
 | `ALB_DNS` | DNS del ALB para health check y smoke test | Configurado |
 
+**Variables**
+
+| Variable | Descripción | Estado |
+|----------|-------------|--------|
+| `AWS_REGION` | Región AWS (`us-east-2`) | Configurado |
+
 ### `mlops.yml`
+
+**Secrets**
 
 | Secret | Descripción | Estado |
 |--------|-------------|--------|
 | `AWS_ACCESS_KEY_ID` | Credencial IAM (S3 + ECS) | Configurado |
 | `AWS_SECRET_ACCESS_KEY` | Credencial IAM | Configurado |
-| `AWS_REGION` | Región AWS (`us-east-2`) | Configurado |
 | `AWS_HOST` | Host RDS PostgreSQL | Configurado |
 | `AWS_DATABASE` | Nombre de la base de datos | Configurado |
 | `AWS_USER` | Usuario RDS | Configurado |
 | `AWS_PASSWORD` | Contraseña RDS | Configurado |
-| `AWS_PORT` | Puerto RDS (`5432`) | Configurado |
-| `AWS_SSLMODE` | Modo SSL (`require`) | Configurado |
 | `MLFLOW_TRACKING_URI` | URI del servidor MLflow (vacío = archivo local) | Configurado |
 | `ALB_DNS` | DNS del ALB para health check post-retrain | Configurado |
+
+**Variables**
+
+| Variable | Descripción | Estado |
+|----------|-------------|--------|
+| `AWS_REGION` | Región AWS (`us-east-2`) | Configurado |
+| `AWS_PORT` | Puerto RDS (`5432`) | Configurado |
+| `AWS_SSLMODE` | Modo SSL (`require`) | Configurado |
 
 **Permisos IAM mínimos requeridos para el usuario/rol:**
 

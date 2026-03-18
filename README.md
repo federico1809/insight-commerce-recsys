@@ -631,11 +631,10 @@ Este patrón reduce tiempo de despliegue, costo de red y fricción operativa.
 
 ### 4. Inyección segura de secretos
 
-El workflow consume secretos desde **GitHub Secrets** para:
+El workflow consume credenciales desde **GitHub Secrets** y **GitHub Variables**:
 
-- credenciales AWS (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`)
-- conexión a RDS (`AWS_HOST`, `AWS_DATABASE`, `AWS_USER`, `AWS_PASSWORD`, `AWS_PORT`, `AWS_SSLMODE`)
-- tracking de experimentos (`MLFLOW_TRACKING_URI`)
+- **Secrets:** credenciales AWS (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`), conexión a RDS (`AWS_HOST`, `AWS_DATABASE`, `AWS_USER`, `AWS_PASSWORD`), tracking de experimentos (`MLFLOW_TRACKING_URI`)
+- **Variables:** configuración no sensible (`AWS_REGION`, `AWS_PORT`, `AWS_SSLMODE`)
 
 La operación del pipeline queda desacoplada del código fuente y alineada con buenas prácticas de seguridad.
 
