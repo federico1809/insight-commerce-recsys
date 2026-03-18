@@ -1,6 +1,11 @@
+<div align="center">
+
 # Insight Commerce · RecSys
 
+</div>
+
 > **ML Consulting Services:** Solución integral de *Next-Basket Recommendation* con arquitectura MLOps desplegada en AWS.
+
 <p align="center">
   <img src="reports/figures/logo.png" width="300" alt="Insight Commerce Logo">
   <br>
@@ -24,10 +29,13 @@ Insight Commerce presenta un **Recommender System (RecSys)** de nivel empresaria
 
 --- 
 
-## Business Impact
-- **Relevancia Continua:** El sistema se adapta a los cambios de consumo mediante detección de Drift.
-- **Escalabilidad:** Arquitectura *serverless* en Fargate que reduce costos operativos.
-- **Decisiones Basadas en Datos:** [Informe de EDA](./docs/Informe_EDA.md) que identifica ciclos de recompra de 7 y 30 días
+## Business Impact & Strategy
+Insight Commerce no entrega modelos estáticos; entregamos **activos digitales resilientes**. Nuestra arquitectura está diseñada para maximizar el ROI del retail mediante tres pilares estratégicos:
+
+* **Mitigación del Riesgo Operativo:** Gracias a la detección activa de **Data Drift (PSI/KS)**, el sistema identifica cambios en los hábitos de consumo antes de que afecten la conversión. Esto elimina la "degradación silenciosa" del modelo, asegurando que las recomendaciones sigan siendo relevantes mes a mes.
+* **Eficiencia de Costos y Escalabilidad:** El uso de una arquitectura **Serverless (AWS Fargate)** permite que el motor de recomendación escale automáticamente con los picos de tráfico (ej. Black Friday) sin necesidad de mantener servidores costosos subutilizados durante periodos valle.
+* **Hiper-Personalización Basada en Evidencia:** El análisis de bimodalidad temporal (ciclos de 7 y 30 días) identificado en nuestro [Informe de EDA](./docs/Informe_EDA.md) permite al modelo actuar en el momento exacto de necesidad del cliente, aumentando el *Ticket Promedio* y la tasa de retención.
+* **Continuidad de Servicio (Zero Downtime):** La lógica de **Inferencia Dual** garantiza que incluso los usuarios nuevos (Cold-Start) reciban una experiencia personalizada desde el segundo cero, eliminando la pérdida de clientes por falta de datos históricos.
 
 --- 
 
@@ -290,23 +298,35 @@ insight-commerce-recsys/
 
 ---
 
-## Pipeline de ejecucion
+## Pipeline de Ejecución
 
-El proyecto se ejecuta en dos pasos independientes desde la raiz del repositorio.
+El proyecto permite dos modalidades de ejecución: mediante scripts independientes (ideal para desarrollo y debugging) o a través de un orquestador centralizado (MLOps) para producción y monitoreo de drift.
 
-### Paso 1 — Feature pipeline
+---
 
-Carga datos desde AWS RDS, calcula features y genera el feature matrix:
+### 1. Ejecución Manual (Pasos Independientes)
+
+Para el desarrollo inicial o pruebas unitarias, se pueden ejecutar los componentes por separado desde la raíz del repositorio:
+
+#### Paso 1 — Carga de datos
+Carga datos desde AWS RDS y genera la data raw en parquet:
 
 ```bash
-python -m src.features.pipeline
+python -m src.data.data_loader
+```
+Output: `data/raw/data.parquet`
+
+### Paso 2 — Feature Engineering
+
+Lee el parquet de data, calcula features y genera la matriz de entrenamiento:
+
+```bash
+python -m src.features.feature_engineering
 ```
 
 Output: `data/processed/feature_matrix.parquet`
 
-Solo es necesario volver a correr este paso si cambian las features o los datos en AWS RDS.
-
-### Paso 2 — Entrenamiento
+### Paso 3 — Entrenamiento
 
 Lee el parquet, entrena LightGBM con Optuna y serializa el modelo:
 
@@ -323,9 +343,41 @@ python -m src.models.train --trials 100
 
 Output: `models/model.pkl`, `models/cluster_models.pkl`, `models/model_log.json`
 
-### Paso 3 — API de recomendaciones (FastAPI)
+### 2. Orquestación Profesional (`pipeline.py`)
 
-> **Requisito previo:** los Pasos 1 y 2 deben haberse ejecutado al menos una vez para que existan los artefactos `models/model.pkl`, `models/cluster_models.pkl` y `models/model_log.json`.
+Para entornos de producción y automatización de MLOps, el proyecto utiliza un orquestador centralizado (`src/pipeline.py`) que integra todo el flujo en memoria. Esto optimiza el rendimiento al evitar lecturas/escrituras intermedias en disco y asegura la trazabilidad completa del experimento.
+
+### A. Pipeline de Entrenamiento (Full Retrain)
+Ejecuta los pasos de carga, ingeniería de atributos, validación y entrenamiento bajo un único run de **MLflow**.
+
+```bash
+# Ejecución estándar con optimización de hiperparámetros
+python -m src.pipeline --trials 50
+
+# Ejecución rápida (debugging) con muestra reducida y sin Optuna
+python -m src.pipeline --n-users 5000 --no-optuna
+```
+
+- Validación de Calidad: Antes del entrenamiento, el pipeline ejecuta validate_feature_matrix. Si los datos no superan los checks de calidad, el proceso se detiene para proteger la integridad del modelo.
+
+- MLflow Tracking: Registra automáticamente parámetros (n_users, trials), métricas de rendimiento (Precision, Recall, F1, AUC) y guarda los modelos (.pkl) como artefactos.
+
+- Referencia para Drift: Si USE_S3=true, sube la matriz de entrenamiento a S3 como el baseline oficial para futuras comparaciones de monitoreo.
+
+### B. Snapshot Semanal (Monitoreo de Drift)
+Genera la matriz de características con los datos más recientes de la base de datos sin disparar un entrenamiento nuevo.
+
+```bash
+python -m src.pipeline --snapshot-only
+```
+
+- Propósito: Este modo es utilizado por jobs programados (ej. GitHub Actions) para obtener una "foto" actual de los datos.
+
+- Almacenamiento en S3: El snapshot se guarda en s3://<BUCKET>/monitoring/actual/feature_matrix.parquet, quedando disponible para que el sistema de monitoreo detecte desviaciones estadísticas (Data Drift).
+
+### Paso 4 — API de recomendaciones (FastAPI)
+
+> **Requisito previo:** los Pasos 2 y 3 deben haberse ejecutado al menos una vez para que existan los artefactos `models/model.pkl`, `models/cluster_models.pkl` y `models/model_log.json`.
 
 Levanta la API con los artefactos entrenados:
 
