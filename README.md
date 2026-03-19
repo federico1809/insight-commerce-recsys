@@ -67,8 +67,8 @@ Diseñamos infraestructuras desacopladas para garantizar que la inteligencia del
 
 
 ## Índice
-1. [Executive Summary](#resumen-ejecutivo)
-2. [Business Impact](#impacto-de-negocio-y-estrategia)
+1. [Resumen Ejecutivo](#resumen-ejecutivo)
+2. [Impacto de Negocio y Estrategia](#impacto-de-negocio-y-estrategia)
 3. [Arquitectura y Stack Tecnológico](#arquitectura-y-stack-tecnológico)
 4. [Hallazgos del EDA](#hallazgos-críticos-del-eda)
 5. [Lógica de Inferencia](#lógica-de-inferencia-modo-dual)
