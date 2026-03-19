@@ -23,12 +23,12 @@
 
 ---
 
-## Executive Summary
+## Resumen Ejecutivo
 Insight Commerce presenta un **Recommender System (RecSys)** de nivel empresarial diseñado para retail digital. Esta solución no es solo un modelo de predicción; es un ecosistema de **MLOps productivo** que mitiga la degradación del modelo mediante monitoreo estadístico, automatiza el reentrenamiento con **Optuna** y garantiza despliegues continuos sobre **AWS**.
 
 --- 
 
-## Business Impact & Strategy
+## Impacto de Negocio y Estrategia
 Insight Commerce no entrega modelos estáticos; entregamos **activos digitales resilientes**. Nuestra arquitectura está diseñada para maximizar el ROI del retail mediante tres pilares estratégicos:
 
 * **Mitigación del Riesgo Operativo:** Gracias a la detección activa de **Data Drift (PSI/KS)**, el sistema identifica cambios en los hábitos de consumo antes de que afecten la conversión. Esto elimina la "degradación silenciosa" del modelo, asegurando que las recomendaciones sigan siendo relevantes mes a mes.
@@ -67,8 +67,8 @@ Diseñamos infraestructuras desacopladas para garantizar que la inteligencia del
 
 
 ## Índice
-1. [Executive Summary](#executive-summary)
-2. [Business Impact](#bussines-impact)
+1. [Executive Summary](#resumen-ejecutivo)
+2. [Business Impact](#impacto-de-negocio-y-estrategia)
 3. [Arquitectura y Stack Tecnológico](#arquitectura-y-stack-tecnológico)
 4. [Hallazgos del EDA](#hallazgos-críticos-del-eda)
 5. [Lógica de Inferencia](#lógica-de-inferencia-modo-dual)
