@@ -1,3 +1,18 @@
+> 📌 This repository is documented in Spanish.
+
+## 👥 Equipo
+
+| Integrante | GitHub |
+|---|---|
+| Federico Ceballos Torres | [@federico1809](https://github.com/federico1809) |
+| Sofia Schanton | [@sofiaschanton](https://github.com/sofiaschanton) |
+| Juan Camilo Vanegas Rojas | [@JuanCaVa21](https://github.com/JuanCaVa21) |
+| Julian Barbieri | [@julian-barbieri](https://github.com/julian-barbieri) |
+
+<div align="center">
+# Insight Commerce · RecSys
+...
+
 <div align="center">
 
 # Insight Commerce · RecSys
