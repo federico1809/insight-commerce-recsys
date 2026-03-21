@@ -13,12 +13,6 @@
 # Insight Commerce · RecSys
 ...
 
-<div align="center">
-
-# Insight Commerce · RecSys
-
-</div>
-
 > **ML Consulting Services:** Solución integral de *Next-Basket Recommendation* con arquitectura MLOps desplegada en AWS.
 
 <p align="center">
@@ -167,7 +161,7 @@ Las páginas de **Impacto de Negocio** y **Métricas del Modelo** funcionan sin 
 ### 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/sofiaschanton/insight-commerce-recsys.git
+git clone https://github.com/federico1809/insight-commerce-recsys.git
 cd insight-commerce-recsys
 ```
 
@@ -258,6 +252,10 @@ MLFLOW_TRACKING_URI=http://127.0.0.1:5000
 | `RANDOM_SEED`         | Semilla aleatoria global                              | `42`                               |
 
 > **Nunca compartas ni subas tu archivo `.env` a control de versiones.** Asegurate de que `.env` este incluido en tu `.gitignore`.
+
+> ⚠️ La infraestructura AWS (RDS, ECS Fargate, S3) fue desplegada durante el desarrollo 
+> del proyecto grupal. Para replicar el entorno completo se requieren credenciales IAM 
+> propias y los recursos correspondientes en AWS.
 
 ---
 
