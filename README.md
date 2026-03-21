@@ -1,8 +1,17 @@
+> 📌 This repository is documented in Spanish.
+
+## 👥 Equipo
+
+| Integrante | GitHub |
+|---|---|
+| Federico Ceballos Torres | [@federico1809](https://github.com/federico1809) |
+| Sofia Schanton | [@sofiaschanton](https://github.com/sofiaschanton) |
+| Juan Camilo Vanegas Rojas | [@JuanCaVa21](https://github.com/JuanCaVa21) |
+| Julian Barbieri | [@julian-barbieri](https://github.com/julian-barbieri) |
+
 <div align="center">
-
 # Insight Commerce · RecSys
-
-</div>
+...
 
 > **ML Consulting Services:** Solución integral de *Next-Basket Recommendation* con arquitectura MLOps desplegada en AWS.
 
@@ -152,7 +161,7 @@ Las páginas de **Impacto de Negocio** y **Métricas del Modelo** funcionan sin 
 ### 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/sofiaschanton/insight-commerce-recsys.git
+git clone https://github.com/federico1809/insight-commerce-recsys.git
 cd insight-commerce-recsys
 ```
 
@@ -220,25 +229,33 @@ API_URL=http://localhost:8000
 # Configuracion del proyecto
 RANDOM_SEED=42
 
+# MLflow (opcional en notebook, recomendado para scripts)
+MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+
 ```
 
 ### Descripcion de variables
 
-| Variable | Descripcion | Valor por defecto |
-|---|---|---|
-| `DB_HOST` | Host de AWS RDS PostgreSQL | — |
-| `DB_PORT` | Puerto PostgreSQL | `5432` |
-| `DB_NAME` | Nombre de la base de datos | — |
-| `DB_USER` | Usuario PostgreSQL | — |
-| `DB_PASSWORD` | Contraseña PostgreSQL | — |
-| `DB_SSLMODE` | Modo SSL | `require` |
-| `S3_BUCKET` | Bucket S3 para artefactos | `insight-commerce-artifacts` |
-| `S3_PREFIX` | Prefijo dentro del bucket | `models` |
-| `USE_S3` | Cargar artefactos desde S3 | `false` (local) / `true` (Fargate) |
-| `API_URL` | URL de la API para Streamlit | `http://localhost:8000` |
-| `RANDOM_SEED` | Semilla aleatoria global | `42` |
+| Variable              | Descripcion                                           | Valor por defecto                  |
+| --------------------- | ----------------------------------------------------- | ---------------------------------- |
+| `DB_HOST`             | Host de AWS RDS PostgreSQL                            | —                                  |
+| `DB_PORT`             | Puerto PostgreSQL                                     | `5432`                             |
+| `DB_NAME`             | Nombre de la base de datos                            | —                                  |
+| `DB_USER`             | Usuario PostgreSQL                                    | —                                  |
+| `DB_PASSWORD`         | Contraseña PostgreSQL                                 | —                                  |
+| `DB_SSLMODE`          | Modo SSL                                              | `require`                          |
+| `S3_BUCKET`           | Bucket S3 para artefactos                             | `insight-commerce-artifacts`       |
+| `S3_PREFIX`           | Prefijo dentro del bucket                             | `models`                           |
+| `USE_S3`              | Cargar artefactos desde S3                            | `false` (local) / `true` (Fargate) |
+| `API_URL`             | URL de la API para Streamlit                          | `http://localhost:8000`            |
+| `MLFLOW_TRACKING_URI` | URI del tracking server para scripts de entrenamiento | `http://127.0.0.1:5000`            |
+| `RANDOM_SEED`         | Semilla aleatoria global                              | `42`                               |
 
 > **Nunca compartas ni subas tu archivo `.env` a control de versiones.** Asegurate de que `.env` este incluido en tu `.gitignore`.
+
+> ⚠️ La infraestructura AWS (RDS, ECS Fargate, S3) fue desplegada durante el desarrollo 
+> del proyecto grupal. Para replicar el entorno completo se requieren credenciales IAM 
+> propias y los recursos correspondientes en AWS.
 
 ---
 
@@ -350,9 +367,11 @@ python -m src.features.feature_engineering
 
 Output: `data/processed/feature_matrix.parquet`
 
-### Paso 3 — Entrenamiento
+Solo es necesario volver a correr este paso si cambian las features o los datos en AWS RDS.
 
-Lee el parquet, entrena LightGBM con Optuna y serializa el modelo:
+#### Paso 2 — Entrenamiento
+
+Lee el parquet, entrena LightGBM con Optuna y serializa el modelo, observa metricas en ML Flow y compara:
 
 ```bash
 # Con Optuna (50 trials -- recomendado)
@@ -367,39 +386,40 @@ python -m src.models.train --trials 100
 
 Output: `models/model.pkl`, `models/cluster_models.pkl`, `models/model_log.json`
 
-### 2. Orquestación Profesional (`pipeline.py`)
+#### MLflow: corridas y métricas
 
-Para entornos de producción y automatización de MLOps, el proyecto utiliza un orquestador centralizado (`src/pipeline.py`) que integra todo el flujo en memoria. Esto optimiza el rendimiento al evitar lecturas/escrituras intermedias en disco y asegura la trazabilidad completa del experimento.
+Esta configuración deja MLflow listo para visualizar métricas de entrenamiento en local.
 
-### A. Pipeline de Entrenamiento (Full Retrain)
-Ejecuta los pasos de carga, ingeniería de atributos, validación y entrenamiento bajo un único run de **MLflow**.
+##### 1. Levantar el servidor de tracking
 
-```bash
-# Ejecución estándar con optimización de hiperparámetros
-python -m src.pipeline --trials 50
-
-# Ejecución rápida (debugging) con muestra reducida y sin Optuna
-python -m src.pipeline --n-users 5000 --no-optuna
-```
-
-- Validación de Calidad: Antes del entrenamiento, el pipeline ejecuta validate_feature_matrix. Si los datos no superan los checks de calidad, el proceso se detiene para proteger la integridad del modelo.
-
-- MLflow Tracking: Registra automáticamente parámetros (n_users, trials), métricas de rendimiento (Precision, Recall, F1, AUC) y guarda los modelos (.pkl) como artefactos.
-
-- Referencia para Drift: Si USE_S3=true, sube la matriz de entrenamiento a S3 como el baseline oficial para futuras comparaciones de monitoreo.
-
-### B. Snapshot Semanal (Monitoreo de Drift)
-Genera la matriz de características con los datos más recientes de la base de datos sin disparar un entrenamiento nuevo.
+Desde la raíz del proyecto:
 
 ```bash
-python -m src.pipeline --snapshot-only
+mlflow ui --host 127.0.0.1 --port 5000
 ```
 
-- Propósito: Este modo es utilizado por jobs programados (ej. GitHub Actions) para obtener una "foto" actual de los datos.
+##### 2. Abrir en el navegador (por default):
 
-- Almacenamiento en S3: El snapshot se guarda en s3://<BUCKET>/monitoring/actual/feature_matrix.parquet, quedando disponible para que el sistema de monitoreo detecte desviaciones estadísticas (Data Drift).
+```text
+http://127.0.0.1:5000
+```
 
-### Paso 4 — API de recomendaciones (FastAPI)
+##### 3. Ejecutar corridas desde el notebook
+
+Ejecutar **Run All** en `notebooks/04_modelado.ipynb`.
+
+##### 4. Ver métricas en la UI
+
+- Ingresar en `http://127.0.0.1:5000/#/experiments` o hacer clic en **Experiments**.
+- Confirmar que existan estos experimentos:
+  - `Baseline popularidad`
+  - `LightGBM Baselines` (incluye dos runs: `LightGBM baseline` y `LightGBM optimizado`)
+  - `CatBoost Baselines`
+- Revisar métricas en **Overview** o **Model Metrics**: `precision`, `recall`, `f1`, `auc`.
+
+> Nota: el notebook usa una función de soporte para MLflow que crea/restaura experimentos automáticamente si no existen o si estaban en estado `deleted`.
+
+### Paso 3 — API de recomendaciones (FastAPI)
 
 > **Requisito previo:** los Pasos 2 y 3 deben haberse ejecutado al menos una vez para que existan los artefactos `models/model.pkl`, `models/cluster_models.pkl` y `models/model_log.json`.
 
@@ -415,11 +435,11 @@ python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 
 Endpoints disponibles en Swagger: `http://localhost:8000/docs`
 
-| Metodo | Endpoint | Descripcion |
-| ------ | -------- | ----------- |
-| `GET` | `/health` | Estado de la API y modelo cargado |
-| `POST` | `/recommend/{user_id}` | Top-10 recomendaciones para un usuario |
-| `POST` | `/recommend/batch` | Top-10 recomendaciones para hasta 100 usuarios |
+| Metodo | Endpoint               | Descripcion                                    |
+| ------ | ---------------------- | ---------------------------------------------- |
+| `GET`  | `/health`              | Estado de la API y modelo cargado              |
+| `POST` | `/recommend/{user_id}` | Top-10 recomendaciones para un usuario         |
+| `POST` | `/recommend/batch`     | Top-10 recomendaciones para hasta 100 usuarios |
 
 #### Ejemplos de uso
 
@@ -440,33 +460,40 @@ curl -X POST "http://localhost:8000/recommend/batch" \
 {
   "user_id": 72136,
   "recommendations": [
-    {"product_key": 13176, "product_name": "Bag of Organic Bananas", "probability": 0.678},
-    {"product_key": 21137, "product_name": "Organic Strawberries", "probability": 0.645}
+    {
+      "product_key": 13176,
+      "product_name": "Bag of Organic Bananas",
+      "probability": 0.678
+    },
+    {
+      "product_key": 21137,
+      "product_name": "Organic Strawberries",
+      "probability": 0.645
+    }
   ]
 }
 ```
 
 #### Comportamiento por cantidad de ordenes
 
-| Ordenes prior del usuario | Comportamiento |
-|---|---|
-| Usuario no existe en BD | `200` — **cold-start global**: top-10 productos más populares |
-| `0` (existe en BD sin historial) | `404` — usuario sin historial prior |
-| `1 – 4` | `200` — **cold-start personal**: top-10 productos más comprados por el usuario |
-| `>= 5` | `200` — recomendaciones del modelo LightGBM + flag `cold_start: false` |
-
+| Ordenes prior del usuario        | Comportamiento                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| Usuario no existe en BD          | `200` — **cold-start global**: top-10 productos más populares                  |
+| `0` (existe en BD sin historial) | `404` — usuario sin historial prior                                            |
+| `1 – 4`                          | `200` — **cold-start personal**: top-10 productos más comprados por el usuario |
+| `>= 5`                           | `200` — recomendaciones del modelo LightGBM + flag `cold_start: false`         |
 
 El campo `probability` en cold-start refleja la frecuencia de compra normalizada por órdenes (cuántas de sus órdenes incluyeron ese producto), no una probabilidad del modelo.
 
 #### Codigos de respuesta HTTP
 
-| Codigo | Causa |
-| ------ | ----- |
-| `200` | Recomendaciones generadas correctamente (modelo ML o cold-start) |
-| `404` | `user_id` no tiene ningún historial en la base de datos (0 órdenes prior) |
-| `400` | Las features calculadas no coinciden con el contrato del modelo |
-| `503` | No se pudo conectar a PostgreSQL (verificar `.env` y estado de Neon) |
-| `500` | Error interno inesperado (ver CloudWatch Logs en AWS) |
+| Codigo | Causa                                                                     |
+| ------ | ------------------------------------------------------------------------- |
+| `200`  | Recomendaciones generadas correctamente (modelo ML o cold-start)          |
+| `404`  | `user_id` no tiene ningún historial en la base de datos (0 órdenes prior) |
+| `400`  | Las features calculadas no coinciden con el contrato del modelo           |
+| `503`  | No se pudo conectar a PostgreSQL (verificar `.env` y estado de Neon)      |
+| `500`  | Error interno inesperado (ver CloudWatch Logs en AWS)                     |
 
 ---
 
