@@ -48,7 +48,6 @@ Insight Commerce no entrega modelos estáticos; entregamos **activos digitales r
 --- 
 
 ##  Arquitectura y Stack Tecnológico
-<div align="center">
 
 | Categoría | Herramientas / Tecnologías |
 | :--- | :--- |
@@ -59,7 +58,6 @@ Insight Commerce no entrega modelos estáticos; entregamos **activos digitales r
 | **Cloud** | AWS S3, AWS RDS, ECS Fargate, IAM |
 | **CI/CD** | GitHub Actions |
 | **Tracking** | MLflow |
-</div>
 
 Diseñamos infraestructuras desacopladas para garantizar que la inteligencia del negocio nunca se detenga:
 
