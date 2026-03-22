@@ -29,6 +29,7 @@
   <img src="https://img.shields.io/badge/GitHub%20Actions-MLOps-2088FF?style=flat-square&logo=githubactions&logoColor=white" alt="GitHub Actions">
   <a href="https://streamlit.io/"><img src="https://img.shields.io/badge/UI-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit"></a>
 </p>
+</div>
 
 ---
 
